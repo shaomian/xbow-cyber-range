@@ -418,11 +418,26 @@ class DockerService:
             raise DockerError(f"创建 exec 失败: {e}") from e
 
     def start_exec_socket(self, exec_id: str):
-        """返回 docker 的 exec websocket/socket，调用方需自行处理读写。"""
+        """返回 docker exec 的底层 socket，供调用方直接 recv/sendall。
+
+        docker-py 的 exec_start(socket=True) 返回的对象因平台/urllib3 版本而异：
+        - Windows npipe: NpipeSocket（有 recv/sendall/setblocking）
+        - Linux unix socket + urllib3 2.x: SocketIO（io.RawIOBase 子类，
+          **没有** recv/sendall/setblocking，但有 _sock 指向底层 socket.socket）
+        - 旧版 urllib3 / HTTPS: 可能直接返回 socket.socket
+
+        统一解包为底层 socket.socket，保证返回值拥有 setblocking/recv/sendall/close。
+        """
         try:
-            return self.client.api.exec_start(exec_id=exec_id, socket=True, tty=True, demux=False)
+            sock = self.client.api.exec_start(exec_id=exec_id, socket=True, tty=True, demux=False)
         except Exception as e:  # noqa: BLE001
             raise DockerError(f"启动 exec 失败: {e}") from e
+        if sock is None:
+            return None
+        # urllib3 2.x 在 unix socket 上返回 SocketIO 而非 raw socket，解包之
+        if not hasattr(sock, "recv") and hasattr(sock, "_sock"):
+            sock = sock._sock
+        return sock
 
     def exec_resize(self, exec_id: str, cols: int, rows: int) -> None:
         try:

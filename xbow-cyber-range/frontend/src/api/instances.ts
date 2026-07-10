@@ -35,14 +35,15 @@ export interface InstanceStartInput {
 }
 
 export const instancesApi = {
-  list: (only_active = false) =>
-    http.get<InstanceOut[]>("/instances", { params: { only_active } }).then((r) => r.data),
+  list: (only_active = false, include_removed = false) =>
+    http.get<InstanceOut[]>("/instances", { params: { only_active, include_removed } }).then((r) => r.data),
   get: (id: number) => http.get<InstanceOut>(`/instances/${id}`).then((r) => r.data),
   start: (payload: InstanceStartInput) => http.post<InstanceOut>("/instances", payload).then((r) => r.data),
   stop: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/stop`, null, { params: { timeout } }).then((r) => r.data),
   startExisting: (id: number) => http.post<InstanceOut>(`/instances/${id}/start`).then((r) => r.data),
   restart: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/restart`, null, { params: { timeout } }).then((r) => r.data),
   remove: (id: number, force = true) => http.delete(`/instances/${id}`, { params: { force } }).then((r) => r.data),
+  purge: (id: number) => http.delete(`/instances/${id}/purge`).then((r) => r.data),
   extend: (id: number, add_seconds: number) => http.post<InstanceOut>(`/instances/${id}/extend`, { add_seconds }).then((r) => r.data),
   setTimeout: (id: number, timeout_seconds: number) => http.put<InstanceOut>(`/instances/${id}/timeout`, { timeout_seconds }).then((r) => r.data),
   logs: (id: number, tail = 500) => http.get<{ logs: string }>(`/instances/${id}/logs`, { params: { tail } }).then((r) => r.data),

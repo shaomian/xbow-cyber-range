@@ -47,6 +47,7 @@ export default function InstancesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
   const [onlyActive, setOnlyActive] = useState(false);
+  const [includeRemoved, setIncludeRemoved] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [extendId, setExtendId] = useState<number | null>(null);
   const [extendMin, setExtendMin] = useState(30);
@@ -55,7 +56,7 @@ export default function InstancesPage() {
     setLoading(true);
     try {
       const [ins, tpls] = await Promise.all([
-        instancesApi.list(onlyActive),
+        instancesApi.list(onlyActive, includeRemoved),
         templatesApi.list(),
       ]);
       setData(ins);
@@ -67,15 +68,15 @@ export default function InstancesPage() {
 
   useEffect(() => {
     refresh();
-  }, [onlyActive]);
+  }, [onlyActive, includeRemoved]);
 
   // 定时刷新（倒计时本地秒级递减，但每 15s 同步一次后端）
   useEffect(() => {
     const t = setInterval(() => {
-      instancesApi.list(onlyActive).then(setData).catch(() => {});
+      instancesApi.list(onlyActive, includeRemoved).then(setData).catch(() => {});
     }, 15000);
     return () => clearInterval(t);
-  }, [onlyActive]);
+  }, [onlyActive, includeRemoved]);
 
   const doStart = async (payload: any) => {
     const inst = await instancesApi.start(payload);
@@ -184,6 +185,15 @@ export default function InstancesPage() {
             >
               <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
             </Popconfirm>
+            {r.status === "removed" && (
+              <Popconfirm
+                title="确认永久删除该记录？"
+                description="将从列表彻底移除该实例记录（不可恢复）。"
+                onConfirm={async () => { await instancesApi.purge(r.id); refresh(); }}
+              >
+                <Button type="link" size="small" danger icon={<DeleteOutlined />}>清除</Button>
+              </Popconfirm>
+            )}
           </Space>
         ),
       },
@@ -198,6 +208,8 @@ export default function InstancesPage() {
         <Space>
           <span>仅看运行中</span>
           <Switch checked={onlyActive} onChange={setOnlyActive} />
+          <span>显示已删除</span>
+          <Switch checked={includeRemoved} onChange={setIncludeRemoved} />
           <Button icon={<ReloadOutlined />} onClick={refresh} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setStartOpen(true)}>启动实例</Button>
         </Space>

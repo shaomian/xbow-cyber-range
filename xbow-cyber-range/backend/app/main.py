@@ -79,7 +79,7 @@ def _create_default_admin() -> None:
         # 若无默认模板，注入几个示例
         if db.query(models.Template).count() == 0:
             samples = [
-                models.Template(name="kali-linux", image="kali/kali-rolling", description="Kali 渗透测试", exposed_ports=[22], command="/bin/bash"),
+                models.Template(name="kali-linux", image="kalilinux/kali-rolling", description="Kali 渗透测试", exposed_ports=[22], command="/bin/bash"),
                 models.Template(name="ubuntu-base", image="ubuntu:22.04", description="Ubuntu 22.04 基础环境", exposed_ports=[], command="/bin/bash"),
                 models.Template(name="web-dvwa", image="vulnerables/web-dvwa", description="DVWA Web 靶场", exposed_ports=[80], command=""),
                 models.Template(name="metasploit", image="metasploitframework/metasploit-framework", description="Metasploit Framework", exposed_ports=[], command=""),

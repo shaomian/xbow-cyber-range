@@ -58,12 +58,13 @@ def _to_out(inst: models.Instance, rs=None) -> schemas.InstanceOut:
 @router.get("", response_model=list[schemas.InstanceOut])
 def list_instances(
     only_active: bool = False,
+    include_removed: bool = False,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db_dep),
     rs=Depends(get_runtime_settings),
 ):
     instance_service.sync_all_status(db)
-    insts = instance_service.list_instances(db, user, only_active=only_active)
+    insts = instance_service.list_instances(db, user, only_active=only_active, include_removed=include_removed)
     return [_to_out(i, rs) for i in insts]
 
 
@@ -161,6 +162,22 @@ def remove(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "实例不存在")
     instance_service.remove_instance(db, inst, force=force)
     return schemas.MessageOut(message="实例已删除")
+
+
+@router.delete("/{instance_id}/purge", response_model=schemas.MessageOut)
+def purge(
+    instance_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db_dep),
+):
+    inst = instance_service.get_instance(db, instance_id, user)
+    if not inst:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "实例不存在")
+    try:
+        instance_service.purge_instance(db, inst)
+    except DockerError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return schemas.MessageOut(message="实例已永久删除")
 
 
 @router.post("/{instance_id}/extend", response_model=schemas.InstanceOut)

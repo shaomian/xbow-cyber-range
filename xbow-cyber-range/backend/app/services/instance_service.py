@@ -40,12 +40,16 @@ def _gen_name(prefix: str = "range") -> str:
     return f"{prefix}-{secrets.token_hex(4)}"
 
 
-def list_instances(db: Session, user: models.User, only_active: bool = False) -> List[models.Instance]:
+def list_instances(db: Session, user: models.User, only_active: bool = False, include_removed: bool = False) -> List[models.Instance]:
     q = db.query(models.Instance)
     if not user.is_admin:
         q = q.filter(models.Instance.user_id == user.id)
     if only_active:
         q = q.filter(models.Instance.status.in_(["creating", "running"]))
+    elif not include_removed:
+        # 默认隐藏已删除实例，避免删除后的历史记录堆积让列表越来越乱。
+        # only_active 已是更严格过滤，此处用 elif 互斥即可。
+        q = q.filter(models.Instance.status != "removed")
     return q.order_by(models.Instance.started_at.desc()).all()
 
 
@@ -288,6 +292,31 @@ def remove_instance(db: Session, inst: models.Instance, force: bool = True) -> N
             pass
     inst.status = "removed"
     inst.stopped_at = inst.stopped_at or _to_naive_utc(_now())
+    db.commit()
+
+
+def purge_instance(db: Session, inst: models.Instance) -> None:
+    """永久删除实例记录（仅允许对已 removed 的实例调用）。
+
+    与 remove_instance 的区别：
+    - remove_instance：停止并移除 docker 容器/网络/镜像，DB 记录保留并置 status=removed（可追溯）。
+    - purge_instance：DB 记录彻底删除，同时清理 compose work_dir 残留文件。
+      容器/镜像此时应该已被 remove_instance 清理过，这里不重复操作 docker。
+    """
+    if inst.status != "removed":
+        raise DockerError("只能永久删除状态为 removed 的实例；请先删除（remove）")
+    # 清理 compose 工作目录残留文件（override.yml / compose.yml）
+    work_dir = getattr(inst, "work_dir", None) or ""
+    if work_dir:
+        from pathlib import Path
+        import shutil
+        try:
+            p = Path(work_dir)
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
+    db.delete(inst)
     db.commit()
 
 

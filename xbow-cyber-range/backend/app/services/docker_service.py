@@ -419,7 +419,10 @@ class DockerService:
 
     def start_exec_socket(self, exec_id: str):
         """返回 docker 的 exec websocket/socket，调用方需自行处理读写。"""
-        return self.client.api.exec_start(exec_id=exec_id, socket=True, tty=True, demux=False)
+        try:
+            return self.client.api.exec_start(exec_id=exec_id, socket=True, tty=True, demux=False)
+        except Exception as e:  # noqa: BLE001
+            raise DockerError(f"启动 exec 失败: {e}") from e
 
     def exec_resize(self, exec_id: str, cols: int, rows: int) -> None:
         try:

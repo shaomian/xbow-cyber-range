@@ -13,6 +13,7 @@ export default function TerminalPanel({ instanceId }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    let disposed = false;
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
@@ -55,9 +56,11 @@ export default function TerminalPanel({ instanceId }: Props) {
     };
 
     ws.onopen = () => {
+      if (disposed) return;
       term.writeln("\x1b[32m已连接\x1b[0m");
     };
     ws.onmessage = (ev) => {
+      if (disposed) return;
       if (typeof ev.data === "string") {
         try {
           const ctl = JSON.parse(ev.data);
@@ -74,9 +77,11 @@ export default function TerminalPanel({ instanceId }: Props) {
       }
     };
     ws.onerror = () => {
+      if (disposed) return;
       term.writeln("\x1b[31m[WebSocket 错误]\x1b[0m");
     };
     ws.onclose = () => {
+      if (disposed) return;
       term.writeln("\x1b[33m[连接已关闭]\x1b[0m");
     };
 
@@ -85,8 +90,13 @@ export default function TerminalPanel({ instanceId }: Props) {
     resizeObserver.observe(hostRef.current!);
 
     return () => {
+      disposed = true;
       disposable.dispose();
       resizeObserver.disconnect();
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
       ws.close();
       term.dispose();
     };

@@ -124,7 +124,7 @@ export default function InstancesPage() {
             <Space wrap size={4}>
               {entries.map(([cp, hp]) => (
                 <Tag key={cp} color="blue" style={{ fontFamily: "monospace" }}>
-                  <a href={`http://${r.host}:${hp}`} target="_blank" rel="noreferrer">
+                  <a href={`http://${window.location.hostname}:${hp}`} target="_blank" rel="noreferrer">
                     {hp}→{cp}
                   </a>
                 </Tag>

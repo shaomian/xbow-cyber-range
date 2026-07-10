@@ -293,13 +293,31 @@ def normalize_compose(benchmark_dir: str, out_path: str) -> None:
 
 
 def _collect_container_ports(services: List[dict]) -> List[int]:
-    """收集所有需要发布到宿主的容器端口（有 host 端口的）。"""
+    """收集所有需要发布到宿主的容器端口。
+
+    历史实现只收集"显式声明了 host 端口"的服务（如 `8080:80`），
+    但 XBEN 中大量 benchmark 仅声明容器端口（如 `ports: - 5000`），
+    这种写法在 compose 默认会把容器端口随机映射到宿主高位端口；
+    但随机端口对多用户多实例不可控，且平台无法回填 instance.ports，
+    导致用户在 Web/MCP 看不到端口、不同实例之间也无法保证互不冲突。
+
+    现统一处理：任何声明了 ports 条目的服务（无论有无 host），
+    都纳入随机范围分配，并在 override 中显式写 `host:container` 映射。
+    """
     cps: List[int] = []
     for svc in services:
         for p in svc.get("ports", []):
-            if p.get("host"):
-                cps.append(int(p["container"]))
-    return cps
+            cp = p.get("container")
+            if cp:
+                cps.append(int(cp))
+    # 去重并保持顺序（同一容器端口可能被多服务/多条目重复声明）
+    seen = set()
+    unique: List[int] = []
+    for cp in cps:
+        if cp not in seen:
+            seen.add(cp)
+            unique.append(cp)
+    return unique
 
 
 # ---------- compose 实例状态 ----------
@@ -373,7 +391,7 @@ def _compose_files_args(work_dir: str, benchmark_dir: str) -> List[str]:
 
 def compose_down(project_name: str, work_dir: str, benchmark_dir: str) -> None:
     """停止并移除 compose 栈。"""
-    args = compose_cmd() + ["-p", project_name] + _compose_files_args(work_dir, benchmark_dir) + ["down", "--remove-orphans"]
+    args = compose_cmd() + ["-p", project_name] + _compose_files_args(work_dir, benchmark_dir) + ["down", "--remove-orphans", "--rmi", "local", "-v"]
     rc, out = _run_cmd(args, cwd=benchmark_dir, timeout=120)
     if rc != 0:
         _force_remove_project(project_name)
@@ -400,6 +418,7 @@ def _force_stop_project(project_name: str) -> None:
 
 
 def _force_remove_project(project_name: str) -> None:
+    """强删一个 compose project 的所有容器与网络（镜像不在这里删，由 down --rmi 处理）。"""
     try:
         label_filter = {"label": [f"com.docker.compose.project={project_name}"]}
         for c in docker_service.client.containers.list(all=True, filters=label_filter):
@@ -407,6 +426,15 @@ def _force_remove_project(project_name: str) -> None:
                 c.remove(force=True)
             except Exception:  # noqa: BLE001
                 pass
+        # 同步清理该 project 的网络，否则 Docker 子网池耗尽后无法再启动新 compose 栈
+        try:
+            for n in docker_service.client.networks.list(filters=label_filter):
+                try:
+                    n.remove()
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
     except Exception:  # noqa: BLE001
         pass
 
@@ -488,7 +516,7 @@ def launch_benchmark(
         image=bench_id,
         status="creating",
         ports={str(cp): hp for cp, hp in port_map.items()},
-        host="127.0.0.1",
+        host=(settings.public_host or "127.0.0.1"),
         expires_at=_to_naive_utc(expires_at),
         started_at=_to_naive_utc(datetime.now(timezone.utc)),
         kind="compose",
@@ -549,6 +577,13 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             inst.last_error = f"build 失败:\n{out[-2000:]}"
             instance_service._set_stopped_now(inst)
             db.commit()
+            # build 失败也要清理已建出的容器与网络，否则每次失败都留一个孤儿网络
+            # 累积最终会把 Docker 默认子网池占满，触发 "all predefined address pools
+            # have been fully subnetted" 导致后续任何 compose 都无法启动。
+            try:
+                _force_remove_project(project_name)
+            except Exception:  # noqa: BLE001
+                pass
             return
         # up
         up_args = common_args + ["up", "-d", "--wait"]
@@ -558,9 +593,18 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             inst.last_error = f"up 失败:\n{out[-2000:]}"
             instance_service._set_stopped_now(inst)
             db.commit()
+            # up 失败同样清理残留，避免网络泄漏
+            try:
+                _force_remove_project(project_name)
+            except Exception:  # noqa: BLE001
+                pass
             return
-        # 回填主容器 id
+        # 回填主容器 id（up 刚完成时容器列表可能短暂为空，重试一次）
         cs = _compose_containers(project_name)
+        if not cs:
+            import time as _t
+            _t.sleep(2)
+            cs = _compose_containers(project_name)
         if cs:
             inst.container_id = cs[0]["id"]
         inst.status = "running"

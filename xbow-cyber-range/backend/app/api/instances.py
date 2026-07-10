@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..config import settings
 from ..deps import get_db_dep, get_current_user, get_runtime_settings
 from ..services import instance_service
 from ..services.docker_service import DockerError, docker_service
@@ -15,14 +16,42 @@ router = APIRouter(prefix="/api/instances", tags=["instances"])
 def _to_out(inst: models.Instance, rs=None) -> schemas.InstanceOut:
     out = schemas.InstanceOut.model_validate(inst)
     out.remaining_seconds = instance_service.remaining_seconds(inst.expires_at)
-    if rs is not None:
-        real = docker_service.container_status(inst.container_id) if inst.container_id else "removed"
+    # 对外访问地址优先用平台配置 public_host（容器端口实际监听 0.0.0.0，
+    # 远程用户/agent 需用对外可达地址访问，而非 127.0.0.1）。
+    if settings.public_host:
+        out.host = settings.public_host
+    if rs is None or inst.status == "creating":
+        # 未请求实时同步，或 compose 正在构建（build 期间无容器/容器未就绪，
+        # 用 docker 实际状态会误判为 removed）——直接信任 DB 状态。
+        return out
+    if inst.kind == "compose":
+        # compose 多服务栈：用 project 标签整体状态判断，而非单个 container_id
+        from ..services import benchmark_service
+        if not inst.project_name:
+            real = "removed"
+        else:
+            try:
+                real = benchmark_service.compose_status(inst.project_name)
+            except Exception:  # noqa: BLE001
+                real = inst.status
         if real == "running":
             out.status = "running"
-        elif real in {"exited", "dead"} and inst.status not in {"stopped", "removed"}:
-            out.status = "exited"
+        elif real == "partial":
+            out.status = "partial"
+        elif real in ("stopped", "exited"):
+            if inst.status not in ("stopped", "removed"):
+                out.status = "stopped"
         elif real == "removed":
             out.status = "removed"
+        return out
+    # 单容器实例
+    real = docker_service.container_status(inst.container_id) if inst.container_id else "removed"
+    if real == "running":
+        out.status = "running"
+    elif real in {"exited", "dead"} and inst.status not in {"stopped", "removed"}:
+        out.status = "exited"
+    elif real == "removed":
+        out.status = "removed"
     return out
 
 

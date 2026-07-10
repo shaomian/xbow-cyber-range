@@ -197,8 +197,8 @@ export default function InstanceDetailPage() {
                           <Space wrap>
                             {ports.map(([cp, hp]) => (
                               <Tag key={cp} color="blue">
-                                <a href={`http://${inst.host}:${hp}`} target="_blank" rel="noreferrer">
-                                  {inst.host}:{hp} → 容器:{cp}
+                                <a href={`http://${window.location.hostname}:${hp}`} target="_blank" rel="noreferrer">
+                                  {window.location.hostname}:{hp} → 容器:{cp}
                                 </a>
                               </Tag>
                             ))}

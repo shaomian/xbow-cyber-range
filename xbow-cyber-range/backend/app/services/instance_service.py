@@ -72,6 +72,14 @@ def _apply_runtime_status(inst: models.Instance) -> None:
             return
         if inst.project_name:
             real = benchmark_service.compose_status(inst.project_name)
+            # 顺带回填主 container_id（构建线程可能因时序未拿到，这里补齐）
+            if real in ("running", "partial") and not inst.container_id:
+                try:
+                    cs = benchmark_service._compose_containers(inst.project_name)
+                    if cs:
+                        inst.container_id = cs[0]["id"]
+                except Exception:  # noqa: BLE001
+                    pass
             if real == "running":
                 inst.status = "running"
             elif real == "partial":
@@ -158,7 +166,7 @@ def start_instance(
         image=image,
         status="creating",
         ports={str(k): v for k, v in port_map.items()},
-        host="127.0.0.1",
+        host=(settings.public_host or "127.0.0.1"),
         expires_at=_to_naive_utc(expires_at),
         started_at=_to_naive_utc(_now()),
         auto_remove=payload.auto_remove,
@@ -204,6 +212,14 @@ def stop_instance(db: Session, inst: models.Instance, timeout: int = 10) -> None
         from . import benchmark_service
         if inst.project_name:
             benchmark_service.compose_stop(inst.project_name, inst.work_dir or "", _benchmark_dir(inst))
+            # 兜底：compose stop 可能因 work_dir 文件缺失或 compose rc=0 但未实际停容器而没生效。
+            # 操作后核对 docker，若仍有 running 容器则直接强停所有该 project 的容器。
+            try:
+                leftover = benchmark_service._compose_containers(inst.project_name)
+                if any(c.get("status") == "running" for c in leftover):
+                    benchmark_service._force_stop_project(inst.project_name)
+            except Exception:  # noqa: BLE001
+                pass
         _set_stopped_now(inst)
         db.commit()
         return
@@ -254,6 +270,13 @@ def remove_instance(db: Session, inst: models.Instance, force: bool = True) -> N
         from . import benchmark_service
         if inst.project_name:
             benchmark_service.compose_down(inst.project_name, inst.work_dir or "", _benchmark_dir(inst))
+            # 兜底：compose down 可能因文件缺失/异常 rc=0 但容器未删，操作后强删所有该 project 容器与网络。
+            try:
+                leftover = benchmark_service._compose_containers(inst.project_name)
+                if leftover:
+                    benchmark_service._force_remove_project(inst.project_name)
+            except Exception:  # noqa: BLE001
+                pass
         inst.status = "removed"
         inst.stopped_at = inst.stopped_at or _to_naive_utc(_now())
         db.commit()
@@ -320,9 +343,13 @@ def reap_expired(db: Session) -> List[int]:
 
 
 def sync_all_status(db: Session) -> None:
-    """批量同步实例状态（用于列表刷新）。"""
+    """批量同步实例状态（用于列表刷新）。
+
+    仅同步仍处于"活跃"类状态的实例；已停止/已删除的不再去查询。
+    包含 partial（compose 部分服务停了）——重启后这类也应被回收修正。
+    """
     insts = db.query(models.Instance).filter(
-        models.Instance.status.in_(["creating", "running", "paused", "restarting"])
+        models.Instance.status.in_(["creating", "running", "paused", "restarting", "partial"])
     ).all()
     for inst in insts:
         try:

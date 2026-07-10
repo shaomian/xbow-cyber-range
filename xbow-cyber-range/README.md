@@ -17,6 +17,7 @@
 | 资源监控 | 系统级 CPU/内存/磁盘 + 每个容器 CPU/内存/网络 |
 | 环境快照与历史 | 对运行中容器 `docker commit` 生成镜像并记录 |
 | 系统设置（管理员） | 在线修改端口范围、默认/最大超时、终端命令、靶场目录等 |
+| **MCP Server** | 将容器生命周期（列表/启动/停止/重启/删除/日志/续期）以 MCP 工具暴露，接入 agent / LLM（stdio + HTTP） |
 
 ## 技术栈
 
@@ -30,7 +31,7 @@
 xbow-cyber-range/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI 入口 + 后台超时清理任务
+│   │   ├── main.py              # FastAPI 入口 + 后台超时清理 + MCP HTTP 挂载
 │   │   ├── config.py            # 配置（环境变量/.env）
 │   │   ├── models.py            # ORM 模型
 │   │   ├── database.py          # engine/session/运行时配置读写
@@ -38,6 +39,7 @@ xbow-cyber-range/
 │   │   ├── auth.py              # bcrypt 密码 + JWT
 │   │   ├── deps.py              # 依赖：当前用户/管理员/运行时配置
 │   │   ├── api/                 # 路由：auth users templates instances exec snapshots stats settings
+│   │   ├── mcp_server.py        # MCP Server（容器生命周期工具，stdio + HTTP）
 │   │   └── services/
 │   │       ├── docker_service.py    # Docker SDK 封装
 │   │       └── instance_service.py  # 实例业务逻辑
@@ -106,8 +108,11 @@ npm run dev
 | `XBOW_CYBER_RANGE_DEFAULT_INSTANCE_TIMEOUT` | 3600 | 实例默认超时秒数 |
 | `XBOW_CYBER_RANGE_MAX_INSTANCE_TIMEOUT` | 28800 | 单次续期/超时上限 |
 | `XBOW_CYBER_RANGE_DATABASE_URL` | sqlite | 可改 MySQL：`mysql+aiomysql://user:pass@host/db` |
+| `XBOW_CYBER_RANGE_PUBLIC_HOST` | 空（用 `127.0.0.1`） | 对外访问地址（不含端口）；远程访问实例/agent 调用需设为公网 IP 或域名（容器端口绑定 `0.0.0.0`） |
 
 > 在线修改的端口范围/超时等保存在数据库 `settings` 表，覆盖 `.env` 默认值。
+
+> ⚠️ **远程访问提示**：若后端供公网/远程 agent 接入，务必设置 `XBOW_CYBER_RANGE_PUBLIC_HOST` 为服务器对外可达 IP 或域名。否则实例返回的 `host` 字段为 `127.0.0.1`，远程用户/agent 用该地址无法访问靶场端口。
 
 ## 使用流程
 
@@ -146,6 +151,102 @@ npm run dev
 
 完整文档见 `/docs`（FastAPI 自动生成）。
 
+## MCP Server（供 agent / LLM 工具接入）
+
+平台内置 MCP（Model Context Protocol）Server，把容器生命周期管理能力以工具形式暴露给 agent（Claude Desktop / opencode / Cursor 等）。工具以**管理员身份**执行，复用现有后端服务。
+
+### 暴露的 MCP 工具
+
+> ⚠️ **关于 flag**：MCP 工具**绝不返回 flag**（包括 `flag` / `computed_flag` / `env_flag`，统一显示为 `hidden`）。
+> flag 只能由 agent 启动目标实例后，对靶机进行 **Web 安全漏洞利用**，在容器/环境内实际获取——
+> 这正是靶场的安全训练目标。平台管理 Web（管理员鉴权）可核对 flag，仅供平台运维而非 agent。
+
+| 工具 | 说明 |
+| --- | --- |
+| `list_instances` | 列出容器/compose 实例（含状态、端口、剩余秒数；**不含 flag**） |
+| `get_instance` | 查询单个实例详情与实时状态（**不含 flag**） |
+| `start_instance` | 启动新容器实例（按 template_id 或 image） |
+| `start_stopped_instance` | 启动已停止的实例（不重建容器） |
+| `stop_instance` | 停止实例 |
+| `restart_instance` | 重启实例 |
+| `remove_instance` | 删除实例（停止并移除） |
+| `get_instance_logs` | 查看日志（单容器 / compose 多服务合并） |
+| `extend_instance` | 续期（延长存活时间） |
+| `set_instance_timeout` | 重设超时 |
+| `list_templates` | 列出靶机模板 |
+| `list_benchmarks` | 列出 XBEN benchmarks（compose 栈；**不含 flag**） |
+| `get_benchmark` | 查询 benchmark 详情（端口/服务/描述；**不含 flag**） |
+| `launch_benchmark` | 启动 benchmark 为 compose 实例（返回信息**不含 flag**） |
+| `get_system_stats` | 宿主机资源概览 |
+| `get_instance_stats` | 单实例实时资源占用 |
+| `ping_docker` | 测试 Docker 连通性 |
+| `list_images` | 列出本地镜像 |
+
+### 接入方式 A：stdio（推荐，用于本地 agent）
+
+后端就绪后，以 stdio 传输独立运行：
+
+```bash
+cd xbow-cyber-range/backend
+python -m app.mcp_server
+```
+
+在 agent 配置中注册该 MCP server。例如 Claude Desktop / opencode 的 MCP 配置（JSON）：
+
+```json
+{
+  "mcpServers": {
+    "xbow-cyber-range": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "J:/AI/augment/xbow-cyber-range/backend",
+      "env": {
+        "PYTHONWARNINGS": "ignore"
+      }
+    }
+  }
+}
+```
+
+stdio 模式下日志写入 `backend/.compose-work/mcp.log`（可用 `XBOW_CYBER_RANGE_MCP_STDIO_LOG_FILE` 覆盖）。
+
+### 接入方式 B：HTTP / Streamable HTTP（用于远程 agent）
+
+MCP HTTP 端点默认挂载在 FastAPI 应用的 `/mcp` 路径（随后端一起启动）。agent 客户端指向：
+
+```
+http://127.0.0.1:8000/mcp
+```
+
+- 协议：Streamable HTTP（MCP 2024-11-05 协议版本）
+- 用 `POST` 发起 JSON-RPC，响应以 `text/event-stream`（SSE）形式返回
+- 设置 `XBOW_CYBER_RANGE_MCP_HTTP_TOKEN` 后，所有请求须携带鉴权头 `Authorization: Bearer <token>`，否则返回 401
+- 置空 `XBOW_CYBER_RANGE_MCP_HTTP_PATH` 即可禁用 HTTP 端点，仅保留 stdio
+
+带鉴权的 agent 配置示例（HTTP transport）：
+
+```json
+{
+  "name": "xbow-cyber-range",
+  "transport": "http",
+  "url": "http://your-host:8000/mcp",
+  "headers": {
+    "Authorization": "Bearer SilverNeedle"
+  },
+  "agents": ["default/master"],
+  "enabled": true
+}
+```
+
+### MCP 相关配置
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `XBOW_CYBER_RANGE_MCP_ADMIN_USERNAME` | 空 | agent impersonate 的管理员用户名；留空自动取首个活跃管理员 |
+| `XBOW_CYBER_RANGE_MCP_HTTP_PATH` | `/mcp` | 挂载到 FastAPI 的 HTTP 端点路径前缀；置空禁用 |
+| `XBOW_CYBER_RANGE_MCP_HTTP_TOKEN` | 空 | HTTP 端点 Bearer Token；客户端须带 `Authorization: Bearer <此值>`；留空不鉴权 |
+| `XBOW_CYBER_RANGE_MCP_STDIO_LOG_FILE` | 空（用 `.compose-work/mcp.log`） | stdio 模式日志文件 |
+
 ## 安全注意
 - 生产环境务必修改 `SECRET_KEY` 与 admin 密码
 - 终端 WebSocket 通过 JWT query 参数鉴权，请走 HTTPS
@@ -163,3 +264,25 @@ A：这是本机代理（如 Clash/v2ray 监听 127.0.0.1:7897）被 Docker 构�
 
 **Q：某些 benchmark 的 docker-compose.yml 有重复键？**
 A：平台会用 PyYAML 规范化（去重复键）+ build context 转绝对路径后构建，透明修复此问题。
+
+**Q：启动 compose benchmark 报 `failed to create network xxx: all predefined address pools have been fully subnetted`？**
+A：Docker 默认地址池容量不足。Docker Desktop 出厂把 `172.17.0.0/16` 切成 `/20` 子网，只能容纳 **16 个**用户定义网络。每启动一个 compose benchmark 都会新建一个 project 网络，多次启动/失败重试后网络累积即耗尽池子，导致 daemon 拒绝再创建任何网络——表现就是新 benchmark 卡在 `creating`，点击启动直接报 `all predefined address pools have been fully subnetted`。
+
+根治办法：扩容 Docker 地址池。编辑 daemon 配置后重启 Docker 守护进程：
+
+- **Docker Desktop**：Settings → Docker Engine，在 JSON 中加 `default-address-pools`，Apply & Restart；
+- **Linux**：编辑 `/etc/docker/daemon.json`（没有则新建），然后 `sudo systemctl restart docker`。
+
+```json
+{
+  "default-address-pools": [
+    {"base": "172.17.0.0/16", "size": 24},
+    {"base": "172.18.0.0/16", "size": 24}
+  ]
+}
+```
+
+把 `/16` 切成 `/24` 子网可容纳 **256 个**网络，第二个 `/16` 做冗余，日常使用基本不会再耗尽。`size` 数值越大子网越小、可容纳网络越多（`24` 即足够本平台使用）。
+
+> 改完后可用 `docker network prune -f` 清理一次历史遗留的孤儿网络，立刻释放存量。
+> 平台代码层面已在每次删除/构建失败时清理对应 project 的容器与网络（见 `benchmark_service.compose_down` 的 `--rmi local` 和 `_force_remove_project` 的网络回收），正常使用不会再泄漏累积。

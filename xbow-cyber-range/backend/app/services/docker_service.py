@@ -277,6 +277,22 @@ class DockerService:
         except Exception as e:  # noqa: BLE001
             raise DockerError(f"删除失败: {e}") from e
 
+    def remove_image(self, ref: str, force: bool = True) -> bool:
+        """删除本地镜像，ref 可为 repo:tag 或镜像 id（短/长）。返回是否尝试删除。
+
+        镜像不存在或删除失败不抛错，返回 False 即可，避免主流程被镜像清理阻断。
+        """
+        if not ref:
+            return False
+        try:
+            self.client.images.remove(ref, force=force)
+            return True
+        except ImageNotFound:
+            return False
+        except APIError:
+            # 可能被其它引用占用，尝试按前缀去重等失败时忽略，交由后续 prune 兜底
+            return False
+
     def logs(self, container_id: str, tail: int = 500, since: Optional[int] = None) -> str:
         c = self.get_container(container_id)
         if not c:

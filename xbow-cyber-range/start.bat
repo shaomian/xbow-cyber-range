@@ -24,8 +24,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM ---- backend deps: install if fastapi/docker missing ----
-python -c "import fastapi, docker" >nul 2>nul
+REM ---- backend deps: install if fastapi/docker/mcp missing ----
+python -c "import fastapi, docker, mcp" >nul 2>nul
 if errorlevel 1 (
   echo [setup] backend deps missing, installing...
   pushd "%ROOT%backend"

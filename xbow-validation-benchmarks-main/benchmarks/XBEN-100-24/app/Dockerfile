@@ -3,9 +3,8 @@ FROM python:3.8-slim-buster
 
 WORKDIR /app
  
-RUN echo "deb http://archive.debian.org/debian/ buster main" > /etc/apt/sources.list \
-    && echo "deb http://archive.debian.org/debian/ buster-updates main" >> /etc/apt/sources.list \
-    && echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
+RUN echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list && \
+    echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
 
 # Now apt-get update will work
 RUN apt-get update && apt-get install -y --no-install-recommends \

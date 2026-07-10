@@ -13,6 +13,8 @@ router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
 
 def _running_map(db: Session, user: models.User) -> dict:
     """返回 benchmark_id -> instance 映射（仅活跃 compose 实例）。"""
+    # 先同步一次状态，避免环境重启后 DB 残留 running 但容器实际已停。
+    instance_service.sync_all_status(db)
     q = db.query(models.Instance).filter(models.Instance.kind == "compose")
     if not user.is_admin:
         q = q.filter(models.Instance.user_id == user.id)

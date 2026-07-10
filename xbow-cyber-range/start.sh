@@ -132,7 +132,7 @@ setup_backend() {
     PYTHON="python"          # venv's python is now on PATH
   fi
 
-  if ! "$PYTHON" -c "import fastapi, docker" 2>/dev/null; then
+  if ! "$PYTHON" -c "import fastapi, docker, mcp" 2>/dev/null; then
     log "installing backend dependencies ..."
     "$PYTHON" -m pip install --upgrade pip >/dev/null
     "$PYTHON" -m pip install -r "$BACKEND_DIR/requirements.txt"

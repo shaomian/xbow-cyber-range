@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     container_label_key: str = "xbow_cyber_range.managed"
     container_label_value: str = "true"
 
+    # ---- 对外访问地址 ----
+    # 容器端口实际绑定到 0.0.0.0（全网监听），可由宿主机公网 IP / 域名访问。
+    # 这里配置后端对外可达地址（不含端口），用于实例字符串 host 字段输出，
+    # 让 Web 与 MCP 客户端拿到的是该地址而非 127.0.0.1。留空回退 127.0.0.1。
+    # 例：public_host = "123.249.94.64"  或  "cyberrange.example.com"
+    public_host: str = ""
+
     # ---- 端口随机范围（管理员可在线修改）----
     port_range_start: int = 20000
     port_range_end: int = 30000
@@ -65,6 +72,19 @@ class Settings(BaseSettings):
 
     # ---- CORS ----
     cors_origins: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    # ---- MCP Server（供 agent 工具调用）----
+    # 作为 agent 调用容器生命周期操作时所 impersonate 的平台用户（须为管理员）。
+    # 留空时自动取数据库第一个 is_admin=True 的用户。
+    mcp_admin_username: str = ""
+    # MCP HTTP/SSE 端点挂载路径前缀（挂载到 FastAPI app 上）；置空则不挂载，
+    # 仅以独立 stdio 进程方式运行（见 python -m app.mcp_server）。
+    mcp_http_path: str = "/mcp"
+    # MCP HTTP 端点鉴权 Bearer Token；agent 客户端需在请求头携带
+    # `Authorization: Bearer <此值>`。留空则不启用鉴权（仅限内网/可信环境）。
+    mcp_http_token: str = ""
+    # MCP stdio 模式下日志输出文件路径（stdio 被协议占用，日志需落到文件）。
+    mcp_stdio_log_file: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod

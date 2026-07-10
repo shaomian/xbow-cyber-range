@@ -270,9 +270,14 @@ def _abs_context(benchmark_dir: str, ctx: str) -> str:
 
 
 def normalize_compose(benchmark_dir: str, out_path: str) -> None:
-    """规范化 compose：PyYAML 解析（去重复键）+ build context 转绝对路径，写到 out_path。
+    """规范化 compose：PyYAML 解析（去重复键）+ build context 转绝对路径 + 清空 ports，写到 out_path。
 
     这能透明修复诸如 XBEN-001-24 中重复 depends_on 之类被严格 YAML 解析器拒绝的问题。
+
+    端口清空的原因：docker compose 对 ports 列表是 append 合并（不是 replace），
+    若原始 compose 写了 "8000:80"，override 又写 "20015:80/tcp"，最终会同时绑定
+    两个 host 端口——原始端口可能与宿主其它服务冲突（如后端 8000）。
+    清空原始 ports 后，override 成为唯一的端口来源，杜绝冲突。
     """
     src = str(Path(benchmark_dir) / "docker-compose.yml")
     with open(src, "r", encoding="utf-8") as f:
@@ -288,6 +293,9 @@ def normalize_compose(benchmark_dir: str, out_path: str) -> None:
             ctx = b.get("context")
             if ctx:
                 b["context"] = _abs_context(benchmark_dir, ctx)
+        # 清空原始端口：由 override 文件统一提供重映射后的端口
+        if "ports" in svc:
+            svc["ports"] = []
     with open(out_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 

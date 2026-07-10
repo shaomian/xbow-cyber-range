@@ -593,15 +593,34 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             except Exception:  # noqa: BLE001
                 pass
             return
-        # up
-        up_args = common_args + ["up", "-d", "--wait"]
-        rc, out = _run_cmd(up_args, cwd=benchmark_dir, timeout=600)
+        # up: 不用 --wait（会因 healthcheck 失败如镜像缺 curl 而误判启动失败）
+        up_args = common_args + ["up", "-d"]
+        rc, out = _run_cmd(up_args, cwd=benchmark_dir, timeout=300)
         if rc != 0:
             inst.status = "exited"
             inst.last_error = f"up 失败:\n{out[-2000:]}"
             instance_service._set_stopped_now(inst)
             db.commit()
             # up 失败同样清理残留，避免网络泄漏
+            try:
+                _force_remove_project(project_name)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        # 等容器实际进入 running 状态（短轮询，不依赖 healthcheck）
+        import time as _t
+        running = False
+        for _ in range(10):
+            _t.sleep(1)
+            cs = _compose_containers(project_name)
+            if cs and any(c.get("status") == "running" for c in cs):
+                running = True
+                break
+        if not running:
+            inst.status = "exited"
+            inst.last_error = "up 后容器未进入 running 状态"
+            instance_service._set_stopped_now(inst)
+            db.commit()
             try:
                 _force_remove_project(project_name)
             except Exception:  # noqa: BLE001

@@ -296,6 +296,10 @@ def normalize_compose(benchmark_dir: str, out_path: str) -> None:
         # 清空原始端口：由 override 文件统一提供重映射后的端口
         if "ports" in svc:
             svc["ports"] = []
+        # 移除 healthcheck：其检查的是容器内端口（如 localhost:5003），
+        # 与平台重映射的宿主端口无关；且很多基础镜像（如 python:3.8-slim）
+        # 缺 curl 导致 healthcheck 永远 unhealthy，误判启动失败。
+        svc.pop("healthcheck", None)
     with open(out_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 

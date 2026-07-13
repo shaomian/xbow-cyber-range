@@ -591,7 +591,7 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             "--build-arg", "no_proxy=*",
             "--build-arg", "NO_PROXY=*",
         ]
-        rc, out = _run_cmd(build_args, cwd=benchmark_dir, timeout=1800)
+        rc, out = _run_cmd(build_args, cwd=benchmark_dir, timeout=3600)
         if rc != 0:
             inst.status = "exited"
             inst.last_error = f"build 失败:\n{out[-2000:]}"

@@ -286,3 +286,18 @@ A：Docker 默认地址池容量不足。Docker Desktop 出厂把 `172.17.0.0/16
 
 > 改完后可用 `docker network prune -f` 清理一次历史遗留的孤儿网络，立刻释放存量。
 > 平台代码层面已在每次删除/构建失败时清理对应 project 的容器与网络（见 `benchmark_service.compose_down` 的 `--rmi local` 和 `_force_remove_project` 的网络回收），正常使用不会再泄漏累积。
+
+**Q：启动 benchmark 提示 `build 失败`，日志显示 apt 下载极慢或卡在某个大包（如 gcc）？**
+A：这是 build 超时。平台对 `docker compose build` 设有超时（当前 3600 秒 / 1 小时），大型 benchmark（如 XBEN-001 需装 gcc 编译工具链）在 apt 源慢的网络上可能超时。解决办法（任选其一）：
+
+1. **先手动 build，再回平台启动**（推荐，最快见效）：
+   在 benchmark 目录直接 build，不受平台超时限制；build 完成后镜像缓存到本地，平台启动时复用缓存不再重新 build：
+   ```bash
+   cd <benchmarks 根>/XBEN-001-24
+   docker compose build          # 不受超时限制，慢慢装
+   # 完成后回平台点「启动」，平台直接用已缓存的镜像启动
+   ```
+
+2. **加速 apt 源**：慢的根因是 Dockerfile 里 `apt-get install` 走 `deb.debian.org` 官方源，国内访问慢。可给 Docker daemon 配 HTTP 代理（见上一条代理方案），或在 Dockerfile 里把 apt 源替换为国内镜像（如 `mirrors.tuna.tsinghua.edu.cn`）。
+
+3. **用不需要 apt 下载的 benchmark**：部分 benchmark 基于已含完整工具链的镜像（如 `XBEN-086-24` ruby 基础镜像），build 极快。

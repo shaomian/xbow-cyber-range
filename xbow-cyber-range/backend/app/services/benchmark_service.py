@@ -300,6 +300,14 @@ def normalize_compose(benchmark_dir: str, out_path: str) -> None:
         # 与平台重映射的宿主端口无关；且很多基础镜像（如 python:3.8-slim）
         # 缺 curl 导致 healthcheck 永远 unhealthy，误判启动失败。
         svc.pop("healthcheck", None)
+        # depends_on 的 service_healthy 条件依赖 healthcheck，移除 healthcheck
+        # 后 docker compose 会报 "has no healthcheck configured"。统一降级为
+        # service_started（保持启动顺序但不等 healthcheck）。
+        dep = svc.get("depends_on")
+        if isinstance(dep, dict):
+            for dep_name, dep_cfg in dep.items():
+                if isinstance(dep_cfg, dict) and dep_cfg.get("condition") == "service_healthy":
+                    dep_cfg["condition"] = "service_started"
     with open(out_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 

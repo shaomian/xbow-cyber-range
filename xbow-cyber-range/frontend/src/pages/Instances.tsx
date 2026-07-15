@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -52,6 +52,7 @@ export default function InstancesPage() {
   const [extendId, setExtendId] = useState<number | null>(null);
   const [extendMin, setExtendMin] = useState(30);
   const [removingId, setRemovingId] = useState<number | null>(null);
+  const removedIdsRef = useRef<Set<number>>(new Set());
 
   const refresh = async () => {
     setLoading(true);
@@ -60,21 +61,25 @@ export default function InstancesPage() {
         instancesApi.list(onlyActive, includeRemoved),
         templatesApi.list(),
       ]);
-      setData(ins);
+      const hide = removedIdsRef.current;
+      setData(ins.filter((x) => !hide.has(x.id)));
       setTemplates(tpls);
     } finally {
       setLoading(false);
     }
   };
 
-  // 删除/清除：按钮转圈圈表示处理中，请求成功后才弹提示并移除该行；
-  // 列表其他实例完全不变，不触发整表同步，避免每删一个就全量刷新所有实例。
+  // 删除/清除：按钮转圈圈表示处理中，请求成功后才弹提示并移除该行，并把该
+  // id 记入 ref。定时器/refresh 拉取后会过滤这些 id，避免"删除"（逻辑删除为
+  // removed）的实例在"显示已删除"视图下被定时器又拉回来。切换开关或手动
+  // 刷新会清空 ref，重新按真实状态展示。
   const handleRemove = (id: number, op: "remove" | "purge") => async () => {
     setRemovingId(id);
     try {
       if (op === "remove") await instancesApi.remove(id);
       else await instancesApi.purge(id);
       message.success(op === "purge" ? "已永久删除" : "已删除");
+      removedIdsRef.current.add(id);
       setData((prev) => prev.filter((x) => x.id !== id));
     } catch {
       // axios 拦截器已弹错误提示
@@ -84,13 +89,20 @@ export default function InstancesPage() {
   };
 
   useEffect(() => {
+    removedIdsRef.current = new Set();
     refresh();
   }, [onlyActive, includeRemoved]);
 
-  // 定时刷新（倒计时本地秒级递减，但每 15s 同步一次后端）
+  // 定时刷新（倒计时本地秒级递减，但每 15s 同步一次后端）。
+  // 过滤掉已乐观删除的 id，防止被全量拉取又加回来。
   useEffect(() => {
     const t = setInterval(() => {
-      instancesApi.list(onlyActive, includeRemoved).then(setData).catch(() => {});
+      instancesApi.list(onlyActive, includeRemoved)
+        .then((list) => {
+          const hide = removedIdsRef.current;
+          setData(list.filter((x) => !hide.has(x.id)));
+        })
+        .catch(() => {});
     }, 15000);
     return () => clearInterval(t);
   }, [onlyActive, includeRemoved]);
@@ -231,7 +243,7 @@ export default function InstancesPage() {
           <Switch checked={onlyActive} onChange={setOnlyActive} />
           <span>显示已删除</span>
           <Switch checked={includeRemoved} onChange={setIncludeRemoved} />
-          <Button icon={<ReloadOutlined />} onClick={refresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => { removedIdsRef.current = new Set(); refresh(); }} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setStartOpen(true)}>启动实例</Button>
         </Space>
       </Row>

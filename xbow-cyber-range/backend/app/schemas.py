@@ -108,6 +108,7 @@ class InstanceOut(BaseModel):
     last_error: str
     auto_remove: bool
     remaining_seconds: Optional[int] = None  # 剩余倒计时，运行时计算
+    renewed: Optional[bool] = None  # 启动已停实例时是否触发了自动续期（仅 start_existing 返回时可能为 True）
     kind: str = "container"
     project_name: Optional[str] = None
     benchmark_id: Optional[str] = None

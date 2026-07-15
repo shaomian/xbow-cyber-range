@@ -211,7 +211,7 @@ def _start_instance(
         db.close()
 
 
-def _start_stopped_instance(instance_id: int) -> Dict[str, Any]:
+def _start_stopped_instance(instance_id: int, timeout_seconds: Optional[int] = None) -> Dict[str, Any]:
     db = _db()
     try:
         user = _get_admin_user(db)
@@ -220,12 +220,15 @@ def _start_stopped_instance(instance_id: int) -> Dict[str, Any]:
         inst = instance_service.get_instance(db, instance_id, user)
         if not inst:
             return {"error": "实例不存在"}
+        rs = _runtime_settings(db)
         try:
-            instance_service.start_existing(db, inst)
+            renewed = instance_service.start_existing(db, inst, rs=rs, timeout_seconds=timeout_seconds)
         except DockerError as e:
             return {"error": str(e)}
-        rs = _runtime_settings(db)
-        return _inst_to_dict(inst, rs=rs)
+        out = _inst_to_dict(inst, rs=rs)
+        if renewed:
+            out["renewed"] = True
+        return out
     finally:
         db.close()
 
@@ -592,14 +595,18 @@ def build_server() -> FastMCP:
         )
 
     @mcp.tool()
-    def start_stopped_instance(instance_id: int) -> str:
+    def start_stopped_instance(instance_id: int, timeout_seconds: Optional[int] = None) -> str:
         """启动一个已停止的容器实例（不重新创建容器）。
+
+        若该实例已过期，会自动续期到默认超时上限内（避免启动后被 reaper 立即停止）；
+        可通过 timeout_seconds 指定续期秒数（受 max_instance_timeout 限制）。
 
         Args:
             instance_id: 实例 ID。
+            timeout_seconds: 可选，续期秒数；不传则用平台默认超时。
         """
         import json
-        return json.dumps(_start_stopped_instance(instance_id), ensure_ascii=False, indent=2)
+        return json.dumps(_start_stopped_instance(instance_id, timeout_seconds=timeout_seconds), ensure_ascii=False, indent=2)
 
     @mcp.tool()
     def stop_instance(instance_id: int, timeout: int = 10) -> str:

@@ -51,6 +51,7 @@ export default function InstancesPage() {
   const [startOpen, setStartOpen] = useState(false);
   const [extendId, setExtendId] = useState<number | null>(null);
   const [extendMin, setExtendMin] = useState(30);
+  const [removingId, setRemovingId] = useState<number | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -63,6 +64,22 @@ export default function InstancesPage() {
       setTemplates(tpls);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 删除/清除：按钮转圈圈表示处理中，请求成功后才弹提示并移除该行；
+  // 列表其他实例完全不变，不触发整表同步，避免每删一个就全量刷新所有实例。
+  const handleRemove = (id: number, op: "remove" | "purge") => async () => {
+    setRemovingId(id);
+    try {
+      if (op === "remove") await instancesApi.remove(id);
+      else await instancesApi.purge(id);
+      message.success(op === "purge" ? "已永久删除" : "已删除");
+      setData((prev) => prev.filter((x) => x.id !== id));
+    } catch {
+      // axios 拦截器已弹错误提示
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -164,7 +181,11 @@ export default function InstancesPage() {
                 size="small"
                 icon={<PlayCircleOutlined />}
                 disabled={r.status === "removed"}
-                onClick={async () => { await instancesApi.startExisting(r.id); refresh(); }}
+                onClick={async () => {
+                  const inst = await instancesApi.startExisting(r.id);
+                  message.success(inst.renewed ? `已启动并自动续期：${inst.name}` : `已启动：${inst.name}`);
+                  refresh();
+                }}
               >
                 启动
               </Button>
@@ -181,17 +202,17 @@ export default function InstancesPage() {
             <Popconfirm
               title="确认删除该实例？"
               description="将同时删除对应容器（强制）。"
-              onConfirm={async () => { await instancesApi.remove(r.id); refresh(); }}
+              onConfirm={handleRemove(r.id, "remove")}
             >
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} loading={removingId === r.id} disabled={removingId !== null && removingId !== r.id}>删除</Button>
             </Popconfirm>
             {r.status === "removed" && (
               <Popconfirm
                 title="确认永久删除该记录？"
                 description="将从列表彻底移除该实例记录（不可恢复）。"
-                onConfirm={async () => { await instancesApi.purge(r.id); refresh(); }}
+                onConfirm={handleRemove(r.id, "purge")}
               >
-                <Button type="link" size="small" danger icon={<DeleteOutlined />}>清除</Button>
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} loading={removingId === r.id} disabled={removingId !== null && removingId !== r.id}>清除</Button>
               </Popconfirm>
             )}
           </Space>

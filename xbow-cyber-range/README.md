@@ -130,6 +130,7 @@ npm run dev
 4. 点「终端」在浏览器内进入容器 shell 执行命令
 5. 测试完成可手动「停止」；忘记关也无需担心——到点自动停止
 6. 需要更多时间点「续期」延长；管理员可在「系统设置」调整默认/最大超时与端口范围
+7. 对已过期自动停止的实例直接点「启动」即可，系统会自动续期至默认超时，无需先续期
 
 > 两类实例（compose / 单容器）在同一「实例管理」列表统一管理，共享超时回收、续期、倒计时、终端、日志。
 
@@ -142,6 +143,7 @@ npm run dev
 | POST | `/api/instances` | 启动实例 |
 | GET | `/api/instances` | 实例列表（含 remaining_seconds） |
 | POST | `/api/instances/{id}/stop` | 停止 |
+| POST | `/api/instances/{id}/start` | 启动已停实例（已过期则自动续期至默认/指定超时） |
 | POST | `/api/instances/{id}/extend` | 续期 |
 | PUT | `/api/instances/{id}/timeout` | 重设超时 |
 | WS | `/api/instances/{id}/terminal?token=...` | 终端 WebSocket |

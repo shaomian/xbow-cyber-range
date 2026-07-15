@@ -4,6 +4,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from typing import Optional
+
 from .. import models, schemas
 from ..config import settings
 from ..deps import get_db_dep, get_current_user, get_runtime_settings
@@ -65,7 +67,16 @@ def list_instances(
 ):
     instance_service.sync_all_status(db)
     insts = instance_service.list_instances(db, user, only_active=only_active, include_removed=include_removed)
-    return [_to_out(i, rs) for i in insts]
+    outs = [_to_out(i, rs) for i in insts]
+    # _to_out 会用 docker 实时状态修正显示状态（如容器已被外部删除→removed），
+    # 可能让 DB 仍是 exited/stopped 的实例显示为 removed，list_instances 的
+    # DB 过滤拦不住这类。基于显示状态再过滤一次，使"显示已删除"/"仅看运行中"
+    # 开关与用户实际所见一致。
+    if only_active:
+        outs = [o for o in outs if o.status in ("running", "creating")]
+    elif not include_removed:
+        outs = [o for o in outs if o.status != "removed"]
+    return outs
 
 
 @router.get("/{instance_id}", response_model=schemas.InstanceOut)
@@ -114,18 +125,25 @@ def stop(
 @router.post("/{instance_id}/start", response_model=schemas.InstanceOut)
 def start_existing(
     instance_id: int,
+    timeout_seconds: Optional[int] = None,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db_dep),
     rs=Depends(get_runtime_settings),
 ):
+    """启动已停实例。若该实例已过期（expires_at <= now），会自动续期到
+    timeout_seconds（受 max_instance_timeout 限制），不传则用默认超时，
+    避免启动后被 reaper 立刻再次停止。响应的 renewed 字段指示是否续期。
+    """
     inst = instance_service.get_instance(db, instance_id, user)
     if not inst:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "实例不存在")
     try:
-        instance_service.start_existing(db, inst)
+        renewed = instance_service.start_existing(db, inst, rs=rs, timeout_seconds=timeout_seconds)
     except DockerError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
-    return _to_out(inst, rs)
+    out = _to_out(inst, rs)
+    out.renewed = renewed or None
+    return out
 
 
 @router.post("/{instance_id}/restart", response_model=schemas.InstanceOut)

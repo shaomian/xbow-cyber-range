@@ -244,7 +244,41 @@ def _benchmark_dir(inst: models.Instance) -> str:
     return ""
 
 
-def start_existing(db: Session, inst: models.Instance) -> None:
+def _renew_expired(
+    inst: models.Instance,
+    rs: Optional[RuntimeSettings] = None,
+    timeout_seconds: Optional[int] = None,
+) -> bool:
+    """启动已停实例时，若 expires_at 已过期则自动续期到默认/指定超时上限内。
+
+    reaper 仅依据 expires_at 判断是否回收，而原先 start_existing 只在
+    expires_at 为 None 时才重置；过期但非空的 expires_at 会触发下一轮 reaper
+    再次停止刚启动的实例（"启动即停"）。这里在启动成功后刷新过期时间，
+    让用户点一次"启动"即可正常使用，无需先点"续期"。返回是否触发了续期。
+    """
+    now = _now()
+    exp = inst.expires_at
+    if exp is not None:
+        exp_aware = exp if exp.tzinfo is not None else exp.replace(tzinfo=timezone.utc)
+        if exp_aware > now:
+            return False
+    default_to = rs.default_instance_timeout if rs else settings.default_instance_timeout
+    max_to = rs.max_instance_timeout if rs else settings.max_instance_timeout
+    to = timeout_seconds if timeout_seconds and timeout_seconds > 0 else default_to
+    if to > max_to:
+        to = max_to
+    inst.expires_at = _to_naive_utc(now + timedelta(seconds=to))
+    return True
+
+
+def start_existing(
+    db: Session,
+    inst: models.Instance,
+    rs: Optional[RuntimeSettings] = None,
+    timeout_seconds: Optional[int] = None,
+) -> bool:
+    """启动已存在的停止实例。返回是否触发了自动续期。"""
+    renewed = False
     if inst.kind == "compose":
         from . import benchmark_service
         if not inst.project_name:
@@ -256,17 +290,16 @@ def start_existing(db: Session, inst: models.Instance) -> None:
         if rc != 0:
             raise DockerError(f"compose up 失败:\n{out[-1500:]}")
         inst.status = "running"
-        if not inst.expires_at:
-            inst.expires_at = _to_naive_utc(_now() + timedelta(seconds=settings.default_instance_timeout))
+        renewed = _renew_expired(inst, rs, timeout_seconds)
         db.commit()
-        return
+        return renewed
     if not inst.container_id:
         raise DockerError("容器尚未创建")
     docker_service.start(inst.container_id)
     inst.status = "running"
-    if not inst.expires_at:
-        inst.expires_at = _to_naive_utc(_now() + timedelta(seconds=settings.default_instance_timeout))
+    renewed = _renew_expired(inst, rs, timeout_seconds)
     db.commit()
+    return renewed
 
 
 def remove_instance(db: Session, inst: models.Instance, force: bool = True) -> None:
@@ -374,11 +407,13 @@ def reap_expired(db: Session) -> List[int]:
 def sync_all_status(db: Session) -> None:
     """批量同步实例状态（用于列表刷新）。
 
-    仅同步仍处于"活跃"类状态的实例；已停止/已删除的不再去查询。
+    同步仍可能"活着"的实例：creating/running/paused/restarting/partial，
+    以及 exited（容器自行退出，可能已被 auto_remove/外部删除，需纠正为 removed）。
+    仅 stopped/removed 是终态，不再查 docker。
     包含 partial（compose 部分服务停了）——重启后这类也应被回收修正。
     """
     insts = db.query(models.Instance).filter(
-        models.Instance.status.in_(["creating", "running", "paused", "restarting", "partial"])
+        models.Instance.status.in_(["creating", "running", "paused", "restarting", "partial", "exited"])
     ).all()
     for inst in insts:
         try:

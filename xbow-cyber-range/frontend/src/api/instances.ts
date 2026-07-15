@@ -16,6 +16,7 @@ export interface InstanceOut {
   last_error: string;
   auto_remove: boolean;
   remaining_seconds: number | null;
+  renewed?: boolean | null;
   kind: string;
   project_name: string | null;
   benchmark_id: string | null;
@@ -40,7 +41,8 @@ export const instancesApi = {
   get: (id: number) => http.get<InstanceOut>(`/instances/${id}`).then((r) => r.data),
   start: (payload: InstanceStartInput) => http.post<InstanceOut>("/instances", payload).then((r) => r.data),
   stop: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/stop`, null, { params: { timeout } }).then((r) => r.data),
-  startExisting: (id: number) => http.post<InstanceOut>(`/instances/${id}/start`).then((r) => r.data),
+  startExisting: (id: number, timeout_seconds?: number) =>
+    http.post<InstanceOut>(`/instances/${id}/start`, null, { params: timeout_seconds ? { timeout_seconds } : undefined }).then((r) => r.data),
   restart: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/restart`, null, { params: { timeout } }).then((r) => r.data),
   remove: (id: number, force = true) => http.delete(`/instances/${id}`, { params: { force } }).then((r) => r.data),
   purge: (id: number) => http.delete(`/instances/${id}/purge`).then((r) => r.data),

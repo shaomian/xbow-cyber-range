@@ -118,7 +118,11 @@ export default function InstanceDetailPage() {
             <Button
               icon={<PlayCircleOutlined />}
               disabled={inst.status === "removed"}
-              onClick={async () => { await instancesApi.startExisting(instanceId); refresh(); }}
+              onClick={async () => {
+                const updated = await instancesApi.startExisting(instanceId);
+                message.success(updated.renewed ? "已启动并自动续期" : "已启动");
+                refresh();
+              }}
             >
               启动
             </Button>

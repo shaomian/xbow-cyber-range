@@ -8,6 +8,7 @@ import {
   InputNumber,
   Row,
   Statistic,
+  Switch,
   Typography,
   App,
   Tag,
@@ -42,6 +43,7 @@ export default function SettingsPage() {
         max_instance_timeout: vals.max_instance_timeout,
         terminal_default_command: vals.terminal_default_command,
         benchmarks_root: vals.benchmarks_root,
+        allow_registration: vals.allow_registration,
       });
       setData(updated);
       form.setFieldsValue(updated);
@@ -87,6 +89,11 @@ export default function SettingsPage() {
                 <Col span={24}>
                   <Form.Item name="benchmarks_root" label="靶场目录（XBEN benchmarks 根目录）">
                     <Input placeholder="留空则自动探测；如 D:\path\to\benchmarks" />
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item name="allow_registration" label="允许注册" valuePropName="checked" tooltip="关闭后新用户无法自助注册">
+                    <Switch checkedChildren="开放" unCheckedChildren="关闭" />
                   </Form.Item>
                 </Col>
               </Row>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Card, Form, Input, Tabs, Typography, Button, App } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +8,13 @@ import { setAuth } from "../api/client";
 export default function LoginPage() {
   const nav = useNavigate();
   const { message } = App.useApp();
+  const [allowReg, setAllowReg] = useState(true);
+
+  useEffect(() => {
+    authApi.registrationStatus()
+      .then((s) => setAllowReg(s.allow_registration))
+      .catch(() => {});
+  }, []);
 
   const onLogin = async (vals: { username: string; password: string }) => {
     try {
@@ -71,34 +79,43 @@ export default function LoginPage() {
                 </Form>
               ),
             },
-            {
-              key: "register",
-              label: "注册",
-              children: (
-                <Form onFinish={onRegister} layout="vertical" size="large">
-                  <Form.Item
-                    name="username"
-                    rules={[{ required: true, message: "请输入用户名" }, { min: 3, message: "至少 3 个字符" }]}
-                  >
-                    <Input prefix={<UserOutlined />} placeholder="用户名" />
-                  </Form.Item>
-                  <Form.Item
-                    name="password"
-                    rules={[{ required: true, message: "请输入密码" }, { min: 6, message: "至少 6 个字符" }]}
-                  >
-                    <Input.Password prefix={<LockOutlined />} placeholder="密码" />
-                  </Form.Item>
-                  <Form.Item style={{ marginBottom: 0 }}>
-                    <Button type="primary" htmlType="submit" block>
-                      注册
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
+            ...(allowReg
+              ? [
+                  {
+                    key: "register",
+                    label: "注册",
+                    children: (
+                      <Form onFinish={onRegister} layout="vertical" size="large">
+                        <Form.Item
+                          name="username"
+                          rules={[{ required: true, message: "请输入用户名" }, { min: 3, message: "至少 3 个字符" }]}
+                        >
+                          <Input prefix={<UserOutlined />} placeholder="用户名" />
+                        </Form.Item>
+                        <Form.Item
+                          name="password"
+                          rules={[{ required: true, message: "请输入密码" }, { min: 6, message: "至少 6 个字符" }]}
+                        >
+                          <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+                        </Form.Item>
+                        <Form.Item style={{ marginBottom: 0 }}>
+                          <Button type="primary" htmlType="submit" block>
+                            注册
+                          </Button>
+                        </Form.Item>
+                      </Form>
+                    ),
+                  },
+                ]
+              : []),
           ]}
           tabBarStyle={{ justifyContent: "center" }}
         />
+        {!allowReg && (
+          <Typography.Paragraph type="secondary" style={{ textAlign: "center", marginTop: 12 }}>
+            注册功能已关闭，如需账号请联系管理员
+          </Typography.Paragraph>
+        )}
       </Card>
     </div>
   );

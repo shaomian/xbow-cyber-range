@@ -69,6 +69,13 @@ class RuntimeSettings:
         return settings.reaper_interval_seconds
 
     @property
+    def allow_registration(self) -> bool:
+        v = get_setting(self.db, "allow_registration", settings.allow_registration)
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    @property
     def docker_host(self) -> str:
         return settings.docker_host
 

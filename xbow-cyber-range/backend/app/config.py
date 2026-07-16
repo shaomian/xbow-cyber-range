@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # 后台扫描间隔
     reaper_interval_seconds: int = 15
 
+    # ---- 注册：是否开放自助注册（管理员可在线关闭）----
+    allow_registration: bool = True
+
     # ---- 终端 ----
     terminal_default_command: str = "/bin/sh"
     terminal_cols: int = 120

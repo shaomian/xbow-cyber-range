@@ -26,6 +26,7 @@ def get_platform_settings(
         terminal_default_command=rs.terminal_default_command,
         reaper_interval_seconds=rs.reaper_interval_seconds,
         benchmarks_root=rs.benchmarks_root,
+        allow_registration=rs.allow_registration,
     )
 
 
@@ -56,5 +57,7 @@ def update_platform_settings(
         set_setting(db, "terminal_default_command", payload.terminal_default_command)
     if payload.benchmarks_root is not None:
         set_setting(db, "benchmarks_root", payload.benchmarks_root)
+    if payload.allow_registration is not None:
+        set_setting(db, "allow_registration", payload.allow_registration)
 
-    return get_platform_settings(_admin=_admin, db=db, rs=RuntimeSettings(db))
+    return get_platform_settings(_admin=_admin, rs=RuntimeSettings(db))

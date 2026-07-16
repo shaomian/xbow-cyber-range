@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
-from ..deps import get_db_dep, get_current_user, get_admin_user
+from ..deps import get_db_dep, get_current_user, get_admin_user, get_runtime_settings, RuntimeSettings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -28,7 +28,13 @@ def login(payload: schemas.LoginIn, db: Session = Depends(get_db_dep)):
 
 
 @router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: schemas.RegisterIn, db: Session = Depends(get_db_dep)):
+def register(
+    payload: schemas.RegisterIn,
+    db: Session = Depends(get_db_dep),
+    rs: RuntimeSettings = Depends(get_runtime_settings),
+):
+    if not rs.allow_registration:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "注册功能已关闭，请联系管理员")
     exists = db.query(models.User).filter(models.User.username == payload.username).first()
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "用户名已存在")
@@ -42,6 +48,12 @@ def register(payload: schemas.RegisterIn, db: Session = Depends(get_db_dep)):
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.get("/registration-status")
+def registration_status(rs: RuntimeSettings = Depends(get_runtime_settings)):
+    """公开端点：登录页未登录时查询是否开放注册，以决定是否展示注册入口。"""
+    return {"allow_registration": rs.allow_registration}
 
 
 @router.get("/me", response_model=schemas.UserOut)

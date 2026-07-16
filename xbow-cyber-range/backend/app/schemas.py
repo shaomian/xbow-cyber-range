@@ -181,6 +181,7 @@ class PlatformSettingsOut(BaseModel):
     terminal_default_command: str
     reaper_interval_seconds: int
     benchmarks_root: str
+    allow_registration: bool = True
 
 
 class PlatformSettingsUpdateIn(BaseModel):
@@ -190,6 +191,7 @@ class PlatformSettingsUpdateIn(BaseModel):
     max_instance_timeout: Optional[int] = None
     terminal_default_command: Optional[str] = None
     benchmarks_root: Optional[str] = None
+    allow_registration: Optional[bool] = None
 
 
 # ---- 通用 ----

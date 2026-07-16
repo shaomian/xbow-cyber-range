@@ -21,6 +21,7 @@ export const authApi = {
   register: (username: string, password: string) =>
     http.post<UserOut>("/auth/register", { username, password }).then((r) => r.data),
   me: () => http.get<UserOut>("/auth/me").then((r) => r.data),
+  registrationStatus: () => http.get<{ allow_registration: boolean }>("/auth/registration-status").then((r) => r.data),
   changePassword: (old_password: string, new_password: string) =>
     http.post(`/auth/change-password?old_password=${encodeURIComponent(old_password)}&new_password=${encodeURIComponent(new_password)}`).then((r) => r.data),
 };

@@ -36,6 +36,7 @@ export interface PlatformSettings {
   terminal_default_command: string;
   reaper_interval_seconds: number;
   benchmarks_root: string;
+  allow_registration: boolean;
 }
 
 export const settingsApi = {

@@ -1,10 +1,23 @@
 """Pydantic 请求/响应模型。"""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Annotated, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
+
+
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """DB 中 datetime 为 naive UTC（无 tzinfo）；序列化时补上 UTC 时区，
+    使输出带 +00:00 后缀，前端 new Date() 才能正确解析为 UTC 再转本地时区显示。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+UtcDatetime = Annotated[datetime, PlainSerializer(_as_utc, return_type=datetime)]
 
 
 # ---- Auth ----
@@ -30,7 +43,7 @@ class UserOut(BaseModel):
     username: str
     is_admin: bool
     is_active: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -60,7 +73,7 @@ class TemplateIn(BaseModel):
 
 class TemplateOut(TemplateIn):
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -102,9 +115,9 @@ class InstanceOut(BaseModel):
     status: str
     ports: Dict[str, int]
     host: str
-    expires_at: Optional[datetime]
-    started_at: Optional[datetime]
-    stopped_at: Optional[datetime]
+    expires_at: Optional[UtcDatetime]
+    started_at: Optional[UtcDatetime]
+    stopped_at: Optional[UtcDatetime]
     last_error: str
     auto_remove: bool
     remaining_seconds: Optional[int] = None  # 剩余倒计时，运行时计算
@@ -130,7 +143,7 @@ class SnapshotOut(BaseModel):
     image_id: str
     image_tag: str
     note: str
-    created_at: datetime
+    created_at: UtcDatetime
 
     class Config:
         from_attributes = True

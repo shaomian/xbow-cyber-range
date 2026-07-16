@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timezone
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -70,7 +71,11 @@ def _runtime_settings(db) -> RuntimeSettings:
 
 
 def _iso(dt) -> Optional[str]:
-    return dt.isoformat() if dt else None
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 # MCP 工具绝不返回 flag 相关字段——flag 只能由 agent 在靶机内利用漏洞获取。
 _FLAG_KEYS = ("flag", "computed_flag", "env_flag")

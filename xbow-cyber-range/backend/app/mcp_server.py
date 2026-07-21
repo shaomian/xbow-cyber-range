@@ -38,6 +38,16 @@ SERVER_INSTRUCTIONS = (
     "所有操作以管理员身份执行。"
     "注意：flag 不会通过任何 MCP 工具返回；flag 只能通过对目标实例"
     "进行 Web 安全漏洞利用后在靶机环境中实际获取。"
+    "\n\n实例 status 字段语义与是否可开始测试："
+    "creating=仍在 build/up（需等待，不可测试）；"
+    "running=所有容器已就绪（可直接测试）；"
+    "partial=compose 多服务中主服务已 running，但部分辅助容器"
+    "（如 init/seed/migration 等一次性任务）已正常退出——"
+    "此时对外端口通常已可访问，【可直接开始测试】，无需继续轮询等待其变为 running；"
+    "exited/stopped=已停止（不可测试，需 start 后再测）；"
+    "removed=已删除。"
+    "判断是否可开始测试的唯一标准：status 为 running 或 partial，"
+    "且对外端口（instance.ports）已知时即可对 host:port 发起测试。"
 )
 
 
@@ -544,6 +554,11 @@ def build_server() -> FastMCP:
 
         Returns:
             JSON 数组，每项含 id/name/image/status/ports/host/remaining_seconds 等。
+
+        status 语义：creating=构建中需等待；running=全部就绪；partial=主服务已 running
+        但部分辅助容器（init/seed/migration 等）已正常退出——这种情况【可直接开始测试】，
+        无需继续轮询等待转为 running；exited/stopped=已停止；removed=已删除。
+        判断是否可测试：status in (running, partial) 且 ports 非空即可对 host:port 测试。
         """
         import json
         return json.dumps(_list_instances(only_active=only_active), ensure_ascii=False, indent=2)
@@ -554,6 +569,10 @@ def build_server() -> FastMCP:
 
         Args:
             instance_id: 实例 ID（list_instances 返回的 id）。
+
+        status 语义：creating=构建中需等待；running=全部就绪；partial=主服务已 running
+        但部分辅助容器已正常退出——这种情况【可直接开始测试】，无需等待转为 running；
+        exited/stopped=已停止；removed=已删除。
         """
         import json
         return json.dumps(_get_instance(instance_id), ensure_ascii=False, indent=2)
@@ -710,6 +729,12 @@ def build_server() -> FastMCP:
         """启动一个 XBEN benchmark 为 compose 实例（异步构建，立即返回 creating）。
 
         启动后返回的实例信息不含 flag——flag 需对运行中的目标进行 Web 安全漏洞利用，在靶机环境中实际获取。
+
+        构建在后台进行，此调用立即返回 status=creating。需轮询 get_instance/list_instances：
+        当 status 变为 running 或 partial 即可开始测试。
+        注意：partial 表示主服务已 running 而部分辅助容器（init/seed/migration 等）
+        已正常退出——此时对外端口通常已可访问，可直接测试，无需继续等待。
+        仅当 status 长时间停在 creating（超过几分钟）或变为 exited 时才视为失败。
 
         Args:
             bench_id: benchmark ID。

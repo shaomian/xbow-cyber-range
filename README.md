@@ -303,3 +303,30 @@ A：这是 build 超时。平台对 `docker compose build` 设有超时（当前
 2. **加速 apt 源**：慢的根因是 Dockerfile 里 `apt-get install` 走 `deb.debian.org` 官方源，国内访问慢。可给 Docker daemon 配 HTTP 代理（见上一条代理方案），或在 Dockerfile 里把 apt 源替换为国内镜像（如 `mirrors.tuna.tsinghua.edu.cn`）。
 
 3. **用不需要 apt 下载的 benchmark**：部分 benchmark 基于已含完整工具链的镜像（如 `XBEN-086-24` ruby 基础镜像），build 极快。
+
+**Q：在 Linux 服务器上启动前端报 `sh: /root/.../frontend/node_modules/.bin/vite: Permission denied`？**
+A：原因是仓库提交到 Git 时 `node_modules/.bin/` 下的可执行文件丢失了执行位（Windows 文件系统没有 Unix 执行权限概念，跨平台 clone 后 Linux 上 vite 等脚本无法执行）。解决办法（任选其一）：
+
+1. **重新 install（推荐，最干净）**：删掉 `node_modules` 重新 `npm install`，npm 会正确设置可执行位：
+    ```bash
+    cd xbow-cyber-range/frontend
+    rm -rf node_modules
+    npm install
+    npm run dev
+    ```
+
+2. **手动补执行位（不想重装依赖时）**：对 `node_modules/.bin/` 下所有文件补 `+x`：
+    ```bash
+    chmod +x xbow-cyber-range/frontend/node_modules/.bin/*
+    npm run dev
+    ```
+
+3. **从源头避免**：项目本不该把 `node_modules` 提交进 Git。确认前端目录的 `.gitignore` 里包含 `node_modules/`，需要的话从仓库历史中移除该目录：
+    ```bash
+    cd xbow-cyber-range/frontend
+    git rm -r --cached node_modules
+    echo "node_modules/" >> .gitignore
+    git add .gitignore && git commit -m "chore: ignore node_modules in frontend"
+    git push
+    ```
+    之后 clone 的环境都走 `npm install`，不再出现权限问题。

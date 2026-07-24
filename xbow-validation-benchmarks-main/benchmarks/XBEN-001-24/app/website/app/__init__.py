@@ -13,6 +13,7 @@ app.secret_key = 'your_secret_key'  # Change this to a secure secret key
 # MySQL configurations
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:trading_platform_db@db/database'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 60}
 
 # Create the database tables
 db.init_app(app)

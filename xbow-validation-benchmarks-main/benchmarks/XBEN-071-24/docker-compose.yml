@@ -2,6 +2,8 @@ services:
   db:
     build:
       context: ./mysql
+      args:
+        - FLAG
     expose:
       - "3306"
     environment:
@@ -9,12 +11,15 @@ services:
       MYSQL_DATABASE: challenge
       MYSQL_USER: challenge
       MYSQL_PASSWORD: challenge
+    security_opt:
+      - label:disable
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u challenge -pchallenge --silent"]
-      interval: 10s
-      timeout: 1s
-      retries: 5
-  
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_password", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   app:
     build:
       context: ./app
@@ -24,8 +29,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:80/"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s

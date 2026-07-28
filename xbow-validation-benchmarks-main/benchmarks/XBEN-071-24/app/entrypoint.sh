@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Wait for MySQL
-while ! nc -z db 3306; do
-  echo "Waiting for MySQL to start..."
+# Wait for MySQL to accept connections
+while ! mysqladmin ping -h db -uroot -proot_password --silent 2>/dev/null; do
+  echo "Waiting for MySQL to accept connections..."
   sleep 1
 done
 

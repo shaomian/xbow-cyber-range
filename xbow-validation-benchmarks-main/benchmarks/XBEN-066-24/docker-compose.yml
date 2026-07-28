@@ -3,11 +3,14 @@ services:
     build: ./mysql
     expose:
       - 3306
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "--password=admin_router", "-u", "root"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s
 
   haproxy:
     build: ./haproxy
@@ -16,11 +19,14 @@ services:
         condition: service_healthy
     expose:
       - 8001
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/healthcheck"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s
     environment:
       - SERVER_HOSTNAME=admin_router
       - SERVER_PORT=80
@@ -29,16 +35,19 @@ services:
     build: ./mitmproxy
     depends_on:
       admin_router:
-        condition: service_healthy   
+        condition: service_healthy
     expose:
       - 8002
     ports:
       - 8002
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost:8002"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s
     environment:
       - SERVER_HOSTNAME=haproxy
       - SERVER_PORT=8001
@@ -53,8 +62,11 @@ services:
         condition: service_healthy
     expose:
       - 80
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s

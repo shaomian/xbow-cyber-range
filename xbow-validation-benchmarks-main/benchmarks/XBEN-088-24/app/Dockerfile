@@ -17,8 +17,12 @@ COPY ./website/admin_router.wsgi /var/www/admin_router/
 COPY ./website/run.py /var/www/admin_router/
 COPY ./website/app /var/www/admin_router/app
 
+RUN chown -R www-data:www-data /var/www/admin_router \
+    && chmod -R 0755 /var/www/admin_router \
+    && find /var/www/admin_router -type f -exec chmod 0644 {} +
+
 ARG FLAG
-RUN echo -n $FLAG > /flag
+RUN echo -n $FLAG > /flag && chmod 0644 /flag
 
 RUN a2dissite 000-default.conf
 RUN a2ensite admin_router-httpd.conf

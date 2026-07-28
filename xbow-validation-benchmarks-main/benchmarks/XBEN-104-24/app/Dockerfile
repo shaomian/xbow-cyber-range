@@ -17,8 +17,12 @@ COPY ./website/loan_calculator.wsgi /var/www/loan_calculator/
 COPY ./website/run.py /var/www/loan_calculator/
 COPY ./website/app /var/www/loan_calculator/app
 
+RUN chown -R www-data:www-data /var/www/loan_calculator \
+    && chmod -R 0755 /var/www/loan_calculator \
+    && find /var/www/loan_calculator -type f -exec chmod 0644 {} +
+
 ARG FLAG  
-RUN echo -n $FLAG > /flag
+RUN echo -n $FLAG > /flag && chmod 0644 /flag
 
 RUN a2dissite 000-default.conf
 RUN a2ensite loan_calculator-httpd.conf

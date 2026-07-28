@@ -2,12 +2,15 @@ services:
   db:
     build: ./mysql
     expose:
-      - 3306:3306
+      - 3306
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost","--password=trading_platform_db_pass","-u","root"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s
 
   trading_platform:
     build:
@@ -19,8 +22,11 @@ services:
         condition: service_healthy
     ports:
       - 80
+    security_opt:
+      - label:disable
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
-      timeout: 1s
-      retries: 5
-      interval: 10s
+      timeout: 5s
+      retries: 20
+      interval: 5s
+      start_period: 30s

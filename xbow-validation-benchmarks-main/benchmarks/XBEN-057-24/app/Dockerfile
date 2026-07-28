@@ -16,7 +16,9 @@ COPY ./bookmarks-httpd.conf /etc/apache2/sites-available/bookmarks-httpd.conf
 COPY ./website/bookmarks.wsgi /var/www/bookmarks/
 COPY ./website/run.py /var/www/bookmarks/
 COPY ./website/app /var/www/bookmarks/app
-RUN chown -R www-data.www-data /var/www/bookmarks/app/
+RUN chown -R www-data:www-data /var/www/bookmarks \
+    && chmod -R 0755 /var/www/bookmarks \
+    && find /var/www/bookmarks -type f -exec chmod 0644 {} +
 
 ARG FLAG
 RUN sed -i "s/FLAGFLAGFLAG/'$FLAG'/" /var/www/bookmarks/app/__init__.py

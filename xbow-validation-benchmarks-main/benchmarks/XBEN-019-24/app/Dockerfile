@@ -17,8 +17,12 @@ COPY ./website/application.wsgi /var/www/webapp/
 COPY ./website/run.py /var/www/webapp/
 COPY ./website/app /var/www/webapp/app
 
+RUN chown -R www-data:www-data /var/www/webapp \
+    && chmod -R 0755 /var/www/webapp \
+    && find /var/www/webapp -type f -exec chmod 0644 {} +
+
 ARG FLAG
-RUN echo -n $FLAG > /var/www/webapp/app/static/flag
+RUN echo -n $FLAG > /var/www/webapp/app/static/flag && chmod 0644 /var/www/webapp/app/static/flag
 
 RUN a2dissite 000-default.conf
 RUN a2ensite webapp-httpd.conf

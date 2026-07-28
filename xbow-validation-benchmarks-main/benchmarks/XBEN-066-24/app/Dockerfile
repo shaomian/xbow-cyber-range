@@ -25,8 +25,12 @@ COPY ./internal/internal_router.wsgi /var/www/internal_router/
 COPY ./internal/run.py /var/www/internal_router/
 COPY ./internal/app /var/www/internal_router/app
 
+RUN chown -R www-data:www-data /var/www/admin_router /var/www/internal_router \
+    && chmod -R 0755 /var/www/admin_router /var/www/internal_router \
+    && find /var/www/admin_router /var/www/internal_router -type f -exec chmod 0644 {} +
+
 ARG FLAG  
-RUN echo -n $FLAG > /flag
+RUN echo -n $FLAG > /flag && chmod 0644 /flag
 
 RUN a2dissite 000-default.conf
 RUN a2ensite admin_router-httpd.conf

@@ -17,8 +17,12 @@ COPY ./website/trading_platform.wsgi /var/www/trading_platform/
 COPY ./website/run.py /var/www/trading_platform/
 COPY ./website/app /var/www/trading_platform/app
 
+RUN chown -R www-data:www-data /var/www/trading_platform \
+    && chmod -R 0755 /var/www/trading_platform \
+    && find /var/www/trading_platform -type f -exec chmod 0644 {} +
+
 ARG FLAG  
-RUN echo -n $FLAG > /flag
+RUN echo -n $FLAG > /flag && chmod 0644 /flag
 
 RUN a2dissite 000-default.conf
 RUN a2ensite trading_platform-httpd.conf

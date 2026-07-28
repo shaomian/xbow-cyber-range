@@ -53,6 +53,8 @@ export default function InstancesPage() {
   const [extendMin, setExtendMin] = useState(30);
   const [removingId, setRemovingId] = useState<number | null>(null);
   const removedIdsRef = useRef<Set<number>>(new Set());
+  const [pageNum, setPageNum] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const refresh = async () => {
     setLoading(true);
@@ -254,7 +256,22 @@ export default function InstancesPage() {
           loading={loading}
           dataSource={data}
           columns={columns}
-          pagination={{ pageSize: 15 }}
+          pagination={{
+            current: pageNum,
+            pageSize: pageSize,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 15, 20, 50, 100],
+            showQuickJumper: true,
+            showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 条`,
+            onChange: (page, size) => {
+              setPageNum(size !== pageSize ? 1 : page);
+              setPageSize(size);
+            },
+            onShowSizeChange: (_page, size) => {
+              setPageSize(size);
+              setPageNum(1);
+            },
+          }}
           scroll={{ x: 1100 }}
         />
       </Card>

@@ -35,6 +35,8 @@ export default function BenchmarksPage() {
   const [launchId, setLaunchId] = useState<string | null>(null);
   const [timeoutMin, setTimeoutMin] = useState(60);
   const [launching, setLaunching] = useState(false);
+  const [pageNum, setPageNum] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const refresh = async () => {
     setLoading(true);
@@ -67,6 +69,10 @@ export default function BenchmarksPage() {
 
   const runningCount = data.filter((b) => b.running).length;
 
+  useEffect(() => {
+    setPageNum(1);
+  }, [keyword]);
+
   const doLaunch = async () => {
     if (!launchId) return;
     setLaunching(true);
@@ -93,7 +99,7 @@ export default function BenchmarksPage() {
         </Space>
       </Row>
 
-      <Card style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 16, position: "sticky", top: 0, zIndex: 10 }}>
         <Input.Search
           placeholder="按 ID / 名称 / 端口 搜索，如 XBEN-001 或 8080"
           value={keyword}
@@ -107,7 +113,22 @@ export default function BenchmarksPage() {
         rowKey="id"
         loading={loading}
         dataSource={filtered}
-        pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 104] }}
+        pagination={{
+          current: pageNum,
+          pageSize: pageSize,
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50, 100],
+          showQuickJumper: true,
+          showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 条`,
+          onChange: (page, size) => {
+            setPageNum(size !== pageSize ? 1 : page);
+            setPageSize(size);
+          },
+          onShowSizeChange: (page, size) => {
+            setPageSize(size);
+            setPageNum(1);
+          },
+        }}
         scroll={{ x: 1000 }}
         columns={[
           {

@@ -10,3 +10,7 @@ RUN apt-get install -y curl
 
 ARG FLAG
 RUN sed -i "s/<FLAG>/$FLAG/" /var/www/html/index.php
+
+RUN chown -R www-data:www-data /var/www/html \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} +

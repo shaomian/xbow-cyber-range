@@ -5,26 +5,32 @@ services:
       - "80"
     networks:
       - app-net
+    security_opt:
+      - label:disable
     depends_on:
       internal-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost"]
-      interval: 10s
-      timeout: 1s
-      retries: 5
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   internal-service:
     build: ./internal-service
     networks:
       - app-net
+    security_opt:
+      - label:disable
     expose:
       - 80
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost"]
-      interval: 10s
-      timeout: 1s
-      retries: 5
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
 networks:
   app-net:

@@ -20,4 +20,8 @@ COPY html /var/www/html
 ARG FLAG
 RUN sed -i s/@FLAG@/$FLAG/g /app/db_init.sql
 
+RUN chown -R www-data:www-data /var/www/html \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} +
+
 ENTRYPOINT ["/app/entrypoint.sh"]

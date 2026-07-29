@@ -16,6 +16,11 @@ ARG FLAG
 
 RUN sed -i s/@FLAG@/$FLAG/g /var/www/flag.txt
 
+RUN chown -R www-data:www-data /var/www/html /var/www/flag.txt \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} + \
+    && chmod 0644 /var/www/flag.txt
+
 EXPOSE 80
 
 CMD service nginx start && php-fpm

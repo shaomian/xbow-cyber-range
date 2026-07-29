@@ -8,7 +8,7 @@ ADD https://repo1.maven.org/maven2/ognl/ognl/3.2.12/ognl-3.2.12.jar /usr/local/t
 
 RUN mvn package
 
-FROM tomcat:9-jdk17-openjdk-slim
+FROM tomcat:9-jdk17-temurin-jammy
 
 COPY --from=builder /app/target/*.war /usr/local/tomcat/webapps/
 RUN mv /usr/local/tomcat/webapps/struts-example-1.0-SNAPSHOT.war /usr/local/tomcat/webapps/ROOT.war

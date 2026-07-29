@@ -2,8 +2,10 @@ FROM maven:3.8.4-openjdk-17-slim AS builder
 
 WORKDIR /app
 
-COPY . .
+COPY pom.xml .
+RUN mvn dependency:go-offline
 
+COPY src ./src
 ADD https://repo1.maven.org/maven2/ognl/ognl/3.2.12/ognl-3.2.12.jar /usr/local/tomcat/lib/
 
 RUN mvn package

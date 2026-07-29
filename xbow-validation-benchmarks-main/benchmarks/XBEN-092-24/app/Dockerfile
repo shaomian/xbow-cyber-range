@@ -21,13 +21,16 @@ COPY wwwconf/000-default.conf /etc/apache2/sites-available/000-default.conf
 RUN groupadd -g 1000 appuser && \
     useradd -u 1000 -g appuser -m appuser
 
-RUN chown -R appuser:appuser /var/www/html
+RUN chown -R appuser:appuser /var/www/html \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} +
 
-    RUN mkdir -p /var/db && \
+RUN mkdir -p /var/db && \
     chown -R www-data:www-data /var/db
 
 USER appuser
-RUN composer install 
+ENV COMPOSER_NO_AUDIT=1
+RUN composer install --no-interaction
 
 USER root
 RUN chown -R www-data:www-data /var/www/html/vendor

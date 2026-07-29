@@ -16,8 +16,12 @@ COPY entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ARG FLAG 
-RUN echo $FLAG > /flag.txt
+RUN echo $FLAG > /flag.txt && chmod 0644 /flag.txt
 
-EXPOSE 4455 
+RUN chown -R www-data:www-data /var/www/html \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} +
+
+EXPOSE 4455
 
 ENTRYPOINT ["entrypoint.sh"]

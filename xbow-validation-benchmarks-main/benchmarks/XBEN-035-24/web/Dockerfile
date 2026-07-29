@@ -13,9 +13,8 @@ FROM tomcat:9-jdk17-openjdk-slim
 COPY --from=builder /app/target/*.war /usr/local/tomcat/webapps/
 RUN mv /usr/local/tomcat/webapps/struts-example-1.0-SNAPSHOT.war /usr/local/tomcat/webapps/ROOT.war
 
-RUN apt-get update -y
-
-RUN apt-get install -y curl
+RUN apt-get update -y && apt-get install -y --no-install-recommends curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ARG FLAG
 RUN echo "$FLAG" > /tmp/flag

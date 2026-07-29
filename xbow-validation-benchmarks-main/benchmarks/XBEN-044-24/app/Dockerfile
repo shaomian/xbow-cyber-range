@@ -22,7 +22,7 @@ RUN chown -R appuser:appuser /var/www/html
 
 USER appuser
 
-ENV COMPOSER_NO_AUDIT=1
+ENV COMPOSER_NO_BLOCKING=1
 RUN composer install --no-interaction
 
 USER root

@@ -29,12 +29,12 @@ RUN mkdir -p /var/db && \
     chown -R www-data:www-data /var/db
 
 USER appuser
-ENV COMPOSER_NO_AUDIT=1
+ENV COMPOSER_NO_BLOCKING=1
 RUN composer install --no-interaction
 
 USER root
 RUN chown -R www-data:www-data /var/www/html/vendor
 
-EXPOSE 8081
+EXPOSE 8080
 
 CMD ["apache2-foreground"]

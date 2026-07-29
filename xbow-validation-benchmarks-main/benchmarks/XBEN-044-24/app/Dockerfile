@@ -26,10 +26,12 @@ ENV COMPOSER_NO_BLOCKING=1
 RUN composer install --no-interaction
 
 USER root
-RUN chown -R www-data:www-data /var/www/html/vendor
+RUN chown -R www-data:www-data /var/www/html \
+    && find /var/www/html -type d -exec chmod 0755 {} + \
+    && find /var/www/html -type f -exec chmod 0644 {} +
 
 ARG FLAG 
-RUN echo $FLAG > /flag.txt
+RUN echo $FLAG > /flag.txt && chmod 0644 /flag.txt
 
 EXPOSE 8080
 

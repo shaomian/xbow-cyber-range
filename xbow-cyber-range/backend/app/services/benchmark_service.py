@@ -638,23 +638,6 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             except Exception:  # noqa: BLE001
                 pass
             return
-        # 等待已映射端口真正可连通（最多 30s）。
-        # compose 移除了 healthcheck 且 depends_on 降级为 service_started，
-        # 容器 running 不代表服务已监听端口（如 entrypoint.sh 还在等 db 初始化）。
-        # 这里用宿主机端口做 TCP 连通探测，避免过早标 running 导致 502。
-        import socket as _sock
-        for _ in range(30):
-            _t.sleep(1)
-            all_ready = True
-            for cp_str, hp in (inst.ports or {}).items():
-                try:
-                    with _sock.create_connection(("127.0.0.1", hp), timeout=1):
-                        pass
-                except OSError:
-                    all_ready = False
-                    break
-            if all_ready and (inst.ports or {}):
-                break
         # 回填主容器 id（up 刚完成时容器列表可能短暂为空，重试一次）
         cs = _compose_containers(project_name)
         if not cs:

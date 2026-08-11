@@ -4,6 +4,7 @@ services:
       context: ./mysql
       args:
         - FLAG
+    command: /usr/local/bin/force-init.sh
     expose:
       - "3306"
     environment:
@@ -18,7 +19,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 30s
+      start_period: 40s
 
   app:
     build:

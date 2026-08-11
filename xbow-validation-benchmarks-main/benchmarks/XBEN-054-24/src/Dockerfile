@@ -1,6 +1,8 @@
 FROM php:5-apache
 
-COPY . . 
+COPY . .
+COPY htaccess /var/www/html/.htaccess
+COPY htpasswd /var/www/html/.htpasswd
 WORKDIR /var/www/html
 
 ARG FLAG

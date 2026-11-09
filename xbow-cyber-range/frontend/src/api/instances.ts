@@ -43,9 +43,16 @@ export const instancesApi = {
     http.get<InstanceOut[]>("/instances", { params: status ? { status } : undefined }).then((r) => r.data),
   get: (id: number) => http.get<InstanceOut>(`/instances/${id}`).then((r) => r.data),
   start: (payload: InstanceStartInput) => http.post<InstanceOut>("/instances", payload).then((r) => r.data),
-  stop: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/stop`, null, { params: { timeout } }).then((r) => r.data),
+  // stop：compose 栈停止后端最长约 120s，超过全局 30s 上限，故放宽请求超时
+  stop: (id: number, timeout = 10) =>
+    http.post<InstanceOut>(`/instances/${id}/stop`, null, { params: { timeout }, timeout: 180000 }).then((r) => r.data),
+  // startExisting：compose up --wait 后端最长 600s（镜像可能需重建），放宽请求超时避免前端先超时报假错
   startExisting: (id: number, timeout_seconds?: number) =>
-    http.post<InstanceOut>(`/instances/${id}/start`, null, { params: timeout_seconds ? { timeout_seconds } : undefined }).then((r) => r.data),
+    http.post<InstanceOut>(
+      `/instances/${id}/start`,
+      null,
+      { params: timeout_seconds ? { timeout_seconds } : undefined, timeout: 660000 }
+    ).then((r) => r.data),
   restart: (id: number, timeout = 10) => http.post<InstanceOut>(`/instances/${id}/restart`, null, { params: { timeout } }).then((r) => r.data),
   remove: (id: number, force = true) => http.delete(`/instances/${id}`, { params: { force } }).then((r) => r.data),
   purge: (id: number) => http.delete(`/instances/${id}/purge`).then((r) => r.data),

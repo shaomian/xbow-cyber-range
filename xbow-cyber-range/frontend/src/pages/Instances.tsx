@@ -26,7 +26,7 @@ import {
   CodeOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-import { instancesApi, type InstanceOut } from "../api/instances";
+import { instancesApi, type InstanceOut, type InstanceStatusFilter } from "../api/instances";
 import { templatesApi, type Template } from "../api/templates";
 import Countdown from "../components/Countdown";
 
@@ -46,8 +46,9 @@ export default function InstancesPage() {
   const [data, setData] = useState<InstanceOut[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
-  const [onlyActive, setOnlyActive] = useState(false);
-  const [includeRemoved, setIncludeRemoved] = useState(false);
+  // "" = 默认视图（全部，不含已删除）；removed = 仅已删除（清理视图）
+  const [statusFilter, setStatusFilter] = useState<"" | InstanceStatusFilter>("");
+  const [purging, setPurging] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [extendId, setExtendId] = useState<number | null>(null);
   const [extendMin, setExtendMin] = useState(30);
@@ -60,7 +61,7 @@ export default function InstancesPage() {
     setLoading(true);
     try {
       const [ins, tpls] = await Promise.all([
-        instancesApi.list(onlyActive, includeRemoved),
+        instancesApi.list(statusFilter || undefined),
         templatesApi.list(),
       ]);
       const hide = removedIdsRef.current;
@@ -73,8 +74,8 @@ export default function InstancesPage() {
 
   // 删除/清除：按钮转圈圈表示处理中，请求成功后才弹提示并移除该行，并把该
   // id 记入 ref。定时器/refresh 拉取后会过滤这些 id，避免"删除"（逻辑删除为
-  // removed）的实例在"显示已删除"视图下被定时器又拉回来。切换开关或手动
-  // 刷新会清空 ref，重新按真实状态展示。
+  // removed）的实例在"全部（含已删除）"视图下被定时器又拉回来。切换筛选或
+  // 手动刷新会清空 ref，重新按真实状态展示。
   const handleRemove = (id: number, op: "remove" | "purge") => async () => {
     setRemovingId(id);
     try {
@@ -93,13 +94,13 @@ export default function InstancesPage() {
   useEffect(() => {
     removedIdsRef.current = new Set();
     refresh();
-  }, [onlyActive, includeRemoved]);
+  }, [statusFilter]);
 
   // 定时刷新（倒计时本地秒级递减，但每 15s 同步一次后端）。
   // 过滤掉已乐观删除的 id，防止被全量拉取又加回来。
   useEffect(() => {
     const t = setInterval(() => {
-      instancesApi.list(onlyActive, includeRemoved)
+      instancesApi.list(statusFilter || undefined)
         .then((list) => {
           const hide = removedIdsRef.current;
           setData(list.filter((x) => !hide.has(x.id)));
@@ -107,7 +108,7 @@ export default function InstancesPage() {
         .catch(() => {});
     }, 15000);
     return () => clearInterval(t);
-  }, [onlyActive, includeRemoved]);
+  }, [statusFilter]);
 
   const doStart = async (payload: any) => {
     const inst = await instancesApi.start(payload);
@@ -122,6 +123,20 @@ export default function InstancesPage() {
     message.success("已续期");
     setExtendId(null);
     refresh();
+  };
+
+  const doPurgeRemoved = async () => {
+    setPurging(true);
+    try {
+      const res = await instancesApi.purgeRemoved();
+      message.success(res.message);
+      removedIdsRef.current = new Set();
+      refresh();
+    } catch {
+      // axios 拦截器已弹错误提示
+    } finally {
+      setPurging(false);
+    }
   };
 
   const columns = useMemo(
@@ -241,10 +256,30 @@ export default function InstancesPage() {
       <Row justify="space-between" align="middle">
         <Typography.Title level={4} style={{ marginTop: 0 }}>实例管理</Typography.Title>
         <Space>
-          <span>仅看运行中</span>
-          <Switch checked={onlyActive} onChange={setOnlyActive} />
-          <span>显示已删除</span>
-          <Switch checked={includeRemoved} onChange={setIncludeRemoved} />
+          <span>状态</span>
+          <Select
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as "" | InstanceStatusFilter)}
+            style={{ width: 150 }}
+            options={[
+              { value: "", label: "全部" },
+              { value: "active", label: "运行中" },
+              { value: "stopped", label: "已停止" },
+              { value: "removed", label: "已删除" },
+              { value: "all", label: "全部（含已删除）" },
+            ]}
+          />
+          {statusFilter === "removed" && (
+            <Popconfirm
+              title="一键清除全部已删除记录？"
+              description="将永久删除所有状态为已删除的实例记录（不可恢复）。"
+              onConfirm={doPurgeRemoved}
+            >
+              <Button danger icon={<DeleteOutlined />} loading={purging}>
+                一键清除
+              </Button>
+            </Popconfirm>
+          )}
           <Button icon={<ReloadOutlined />} onClick={() => { removedIdsRef.current = new Set(); refresh(); }} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setStartOpen(true)}>启动实例</Button>
         </Space>

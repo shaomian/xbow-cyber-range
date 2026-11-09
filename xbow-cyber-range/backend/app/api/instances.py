@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from typing import Optional
+from typing import Literal, Optional
 
 from .. import models, schemas
 from ..config import settings
@@ -61,22 +61,45 @@ def _to_out(inst: models.Instance, rs=None) -> schemas.InstanceOut:
 def list_instances(
     only_active: bool = False,
     include_removed: bool = False,
+    status: Optional[Literal["active", "stopped", "removed", "all"]] = None,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db_dep),
     rs=Depends(get_runtime_settings),
 ):
     instance_service.sync_all_status(db)
-    insts = instance_service.list_instances(db, user, only_active=only_active, include_removed=include_removed)
+    insts = instance_service.list_instances(
+        db, user, only_active=only_active, include_removed=include_removed, status=status
+    )
     outs = [_to_out(i, rs) for i in insts]
     # _to_out 会用 docker 实时状态修正显示状态（如容器已被外部删除→removed），
-    # 可能让 DB 仍是 exited/stopped 的实例显示为 removed，list_instances 的
-    # DB 过滤拦不住这类。基于显示状态再过滤一次，使"显示已删除"/"仅看运行中"
-    # 开关与用户实际所见一致。
-    if only_active:
-        outs = [o for o in outs if o.status in ("running", "creating")]
-    elif not include_removed:
-        outs = [o for o in outs if o.status != "removed"]
+    # 可能让 DB 仍是 exited/stopped 的实例显示为 removed，DB 过滤拦不住这类。
+    # 基于显示状态再过滤一次，使筛选结果与用户实际所见一致。
+    if status == "active":
+        outs = [o for o in outs if o.status in ("running", "creating", "partial")]
+    elif status == "stopped":
+        outs = [o for o in outs if o.status in ("stopped", "exited")]
+    elif status == "removed":
+        outs = [o for o in outs if o.status == "removed"]
+    elif status is None:
+        # 仅旧参数路径（未传 status）走默认过滤；status="all" 不过滤
+        if only_active:
+            outs = [o for o in outs if o.status in ("running", "creating")]
+        elif not include_removed:
+            outs = [o for o in outs if o.status != "removed"]
     return outs
+
+
+@router.post("/purge-removed", response_model=schemas.MessageOut)
+def purge_removed(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db_dep),
+):
+    """一键清除当前用户可见的所有已删除（removed）实例记录。"""
+    ok, fail = instance_service.purge_removed_instances(db, user)
+    msg = f"已清除 {ok} 条已删除记录"
+    if fail:
+        msg += f"，{fail} 条失败"
+    return schemas.MessageOut(message=msg)
 
 
 @router.get("/{instance_id}", response_model=schemas.InstanceOut)

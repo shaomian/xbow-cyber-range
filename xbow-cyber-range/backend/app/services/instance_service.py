@@ -40,11 +40,28 @@ def _gen_name(prefix: str = "range") -> str:
     return f"{prefix}-{secrets.token_hex(4)}"
 
 
-def list_instances(db: Session, user: models.User, only_active: bool = False, include_removed: bool = False) -> List[models.Instance]:
+def list_instances(
+    db: Session,
+    user: models.User,
+    only_active: bool = False,
+    include_removed: bool = False,
+    status: Optional[str] = None,
+) -> List[models.Instance]:
+    """列表查询。status 为 DB 级过滤（active/stopped/removed/all），
+    优先于 only_active/include_removed 旧参数，避免记录堆积后全表拉取。
+    """
     q = db.query(models.Instance)
     if not user.is_admin:
         q = q.filter(models.Instance.user_id == user.id)
-    if only_active:
+    if status == "active":
+        q = q.filter(models.Instance.status.in_(["creating", "running", "partial"]))
+    elif status == "stopped":
+        q = q.filter(models.Instance.status.in_(["stopped", "exited"]))
+    elif status == "removed":
+        q = q.filter(models.Instance.status == "removed")
+    elif status == "all":
+        pass  # 不过滤，含 removed
+    elif only_active:
         q = q.filter(models.Instance.status.in_(["creating", "running"]))
     elif not include_removed:
         # 默认隐藏已删除实例，避免删除后的历史记录堆积让列表越来越乱。
@@ -353,6 +370,24 @@ def purge_instance(db: Session, inst: models.Instance) -> None:
     db.commit()
 
 
+def purge_removed_instances(db: Session, user: models.User) -> Tuple[int, int]:
+    """批量永久删除当前用户可见的所有 removed 实例记录，返回 (成功数, 失败数)。
+
+    单条失败不影响其余记录（逐条独立 commit）；失败数由调用方反馈给前端。
+    """
+    q = db.query(models.Instance).filter(models.Instance.status == "removed")
+    if not user.is_admin:
+        q = q.filter(models.Instance.user_id == user.id)
+    ok = fail = 0
+    for inst in q.all():
+        try:
+            purge_instance(db, inst)
+            ok += 1
+        except Exception:  # noqa: BLE001
+            fail += 1
+    return ok, fail
+
+
 def extend_instance(db: Session, inst: models.Instance, add_seconds: int, rs: RuntimeSettings) -> datetime:
     base = inst.expires_at
     if base is None:
@@ -409,11 +444,14 @@ def sync_all_status(db: Session) -> None:
 
     同步仍可能"活着"的实例：creating/running/paused/restarting/partial，
     以及 exited（容器自行退出，可能已被 auto_remove/外部删除，需纠正为 removed）。
-    仅 stopped/removed 是终态，不再查 docker。
-    包含 partial（compose 部分服务停了）——重启后这类也应被回收修正。
+    stopped 也纳入同步：compose 栈/容器可能已被外部删除（平台外 docker prune、
+    手动 compose down 等），这类记录显示状态会修正为 removed，但 DB 停留在
+    stopped 终态就永远无法收敛——导致"已删除"筛选（按 DB 状态过滤）查不到
+    它们、又无法直接清除。同步后 DB 与显示一致，僵尸记录自愈为 removed。
+    仅 removed 是终态，不再查 docker。
     """
     insts = db.query(models.Instance).filter(
-        models.Instance.status.in_(["creating", "running", "paused", "restarting", "partial", "exited"])
+        models.Instance.status.in_(["creating", "running", "paused", "restarting", "partial", "exited", "stopped"])
     ).all()
     for inst in insts:
         try:

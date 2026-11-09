@@ -58,6 +58,31 @@ def _on_startup() -> None:
     init_db()
     Path(settings.compose_work_dir).mkdir(parents=True, exist_ok=True)
     logger.info("数据库已初始化")
+    _warn_insecure_defaults()
+
+
+def _warn_insecure_defaults() -> None:
+    """检测危险默认配置并强警告。
+
+    - secret_key 未修改：JWT 可被任意伪造（默认值公开在源码里），等同认证失效。
+    - mcp_http_token 为空但挂载了 /mcp：MCP 以管理员身份操作全部实例，端点无鉴权。
+    配置了 public_host（对外部署）时风险直接暴露公网，额外提示。
+    """
+    insecure_key = settings.secret_key.startswith("change-me")
+    no_mcp_auth = not (settings.mcp_http_token or "").strip() and bool((settings.mcp_http_path or "").strip())
+    if not (insecure_key or no_mcp_auth):
+        return
+    bar = "=" * 62
+    logger.warning(bar)
+    if insecure_key:
+        logger.warning("安全警告: SECRET_KEY 仍为默认值，任何人可伪造管理员 JWT 绕过登录！")
+        logger.warning("修复: 设置环境变量 XBOW_CYBER_RANGE_SECRET_KEY 为长随机字符串后重启。")
+    if no_mcp_auth:
+        logger.warning("安全警告: MCP_HTTP_TOKEN 为空，%s 端点完全无鉴权（MCP 以管理员身份操作全部实例）。", settings.mcp_http_path)
+        logger.warning("修复: 设置环境变量 XBOW_CYBER_RANGE_MCP_HTTP_TOKEN 后重启；或置空 MCP_HTTP_PATH 停用 HTTP 挂载。")
+    if (settings.public_host or "").strip():
+        logger.warning("当前已配置 PUBLIC_HOST（对外部署），以上风险直接暴露公网，务必先修复！")
+    logger.warning(bar)
 
 
 @app.on_event("startup")

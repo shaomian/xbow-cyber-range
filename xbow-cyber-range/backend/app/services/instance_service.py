@@ -142,9 +142,9 @@ def start_instance(
         template = db.query(models.Template).filter(models.Template.id == payload.template_id).first()
         if not template:
             return None, "模板不存在"
-        if not template.is_public and not user.is_admin and template.id != payload.template_id:
-            # 这里仅做存在性校验，模板可见性由前端控制
-            pass
+        if not template.is_public and not user.is_admin:
+            # 私有模板仅管理员可用；前端隐藏不等于后端放行，防止知道 id 越权启动
+            return None, "模板不存在或无权限使用"
     elif payload.image:
         pass
     else:
@@ -386,6 +386,26 @@ def purge_removed_instances(db: Session, user: models.User) -> Tuple[int, int]:
         except Exception:  # noqa: BLE001
             fail += 1
     return ok, fail
+
+
+def remove_user_instances(db: Session, user: models.User) -> None:
+    """删除用户前清理其所有实例，避免孤儿容器泄漏。
+
+    逐实例先 remove（停/删 docker 容器、compose 栈与网络）再 purge（清
+    compose work_dir 残留文件并删除记录）。remove 无论 docker 调用成败
+    都会把状态置为 removed，因此 purge 可接着清记录。单实例失败不阻断
+    其余清理；记录行最终由 User.instances 的 ORM 级联兜底删除。
+    """
+    for inst in list(user.instances):
+        try:
+            remove_instance(db, inst)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if inst.status == "removed":
+                purge_instance(db, inst)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def extend_instance(db: Session, inst: models.Instance, add_seconds: int, rs: RuntimeSettings) -> datetime:

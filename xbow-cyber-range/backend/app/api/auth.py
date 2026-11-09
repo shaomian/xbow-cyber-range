@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
 from ..deps import get_db_dep, get_current_user, get_admin_user, get_runtime_settings, RuntimeSettings
+from ..services import instance_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -123,6 +124,9 @@ def delete_user(
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+    # 先停/删该用户所有实例的 docker 资源并清记录，否则级联删行会留下
+    # 无主孤儿容器（reaper 不可见，端口/资源永久泄漏）
+    instance_service.remove_user_instances(db, user)
     db.delete(user)
     db.commit()
     return schemas.MessageOut(message="用户已删除")

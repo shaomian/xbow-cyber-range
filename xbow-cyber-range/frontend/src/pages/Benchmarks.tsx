@@ -33,7 +33,7 @@ export default function BenchmarksPage() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [launchId, setLaunchId] = useState<string | null>(null);
-  const [timeoutMin, setTimeoutMin] = useState(60);
+  const [timeoutMin, setTimeoutMin] = useState<number | null>(null);
   const [launching, setLaunching] = useState(false);
   const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -77,7 +77,7 @@ export default function BenchmarksPage() {
     if (!launchId) return;
     setLaunching(true);
     try {
-      const inst = await benchmarksApi.launch(launchId, Math.floor(timeoutMin * 60));
+      const inst = await benchmarksApi.launch(launchId, timeoutMin == null ? undefined : Math.floor(timeoutMin * 60));
       message.success(`已提交构建：${launchId}（实例 #${inst.id}）`);
       setLaunchId(null);
       nav(`/instances/${inst.id}`);
@@ -201,7 +201,7 @@ export default function BenchmarksPage() {
                     size="small"
                     icon={<RocketOutlined />}
                     disabled={!r.has_compose}
-                    onClick={() => { setLaunchId(r.id); setTimeoutMin(60); }}
+                    onClick={() => { setLaunchId(r.id); setTimeoutMin(null); }}
                   >
                     启动
                   </Button>
@@ -233,7 +233,17 @@ export default function BenchmarksPage() {
           {data.find((b) => b.id === launchId)?.computed_flag ?? ""}
         </Typography.Paragraph>
         <div style={{ marginBottom: 8 }}>超时自动停止（分钟）：</div>
-        <InputNumber min={1} max={480} value={timeoutMin} onChange={(v) => setTimeoutMin(v ?? 60)} style={{ width: 200 }} addonAfter="分钟" />
+        <InputNumber
+          min={1}
+          value={timeoutMin}
+          onChange={(v) => setTimeoutMin(v)}
+          placeholder="留空使用平台默认"
+          style={{ width: 200 }}
+          addonAfter="分钟"
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 4, fontSize: 12, marginBottom: 0 }}>
+          留空时按系统设置的默认超时启动（超出平台上限会被自动截断）。
+        </Typography.Paragraph>
         <Typography.Paragraph type="warning" style={{ marginTop: 12, fontSize: 12 }}>
           注意：部分 benchmark 构建时需 apt 下载。若你的 Docker 受本地代理(如 127.0.0.1:7897)影响，
           apt 可能失败——这是环境问题，请在 Docker Desktop 代理设置中处理。

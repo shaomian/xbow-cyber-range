@@ -320,7 +320,7 @@ function StartModal({
   const [image, setImage] = useState("");
   const [name, setName] = useState("");
   const [ports, setPorts] = useState("");
-  const [timeoutMin, setTimeoutMin] = useState<number>(60);
+  const [timeoutMin, setTimeoutMin] = useState<number | null>(null);
   const [autoRemove, setAutoRemove] = useState(false);
 
   useEffect(() => {
@@ -330,13 +330,17 @@ function StartModal({
       setImage("");
       setName("");
       setPorts("");
-      setTimeoutMin(60);
+      setTimeoutMin(null);
       setAutoRemove(false);
     }
   }, [open, templates]);
 
   const submit = () => {
-    const payload: any = { name: name || undefined, timeout_seconds: Math.floor(timeoutMin * 60), auto_remove: autoRemove };
+    const payload: any = {
+      name: name || undefined,
+      timeout_seconds: timeoutMin == null ? undefined : Math.floor(timeoutMin * 60),
+      auto_remove: autoRemove,
+    };
     if (mode === "template") {
       payload.template_id = templateId;
     } else {
@@ -397,7 +401,13 @@ function StartModal({
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
         <div>
           超时（分钟）：
-          <InputNumber min={1} max={480} value={timeoutMin} onChange={(v) => setTimeoutMin(v ?? 60)} />
+          <InputNumber
+            min={1}
+            value={timeoutMin}
+            onChange={(v) => setTimeoutMin(v)}
+            placeholder="留空使用平台默认"
+            style={{ marginLeft: 8 }}
+          />
         </div>
         <div>
           退出自动删除：

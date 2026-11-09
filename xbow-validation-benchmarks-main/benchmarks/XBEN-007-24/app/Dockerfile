@@ -9,7 +9,8 @@ RUN echo "deb [trusted=yes] http://archive.debian.org/debian buster main" > /etc
 
 # Skip system dependencies to avoid disk space issues - Flask apps typically don't need them
 
-ENV FLAG=${FLAG} 
+ARG FLAG
+ENV FLAG=${FLAG}
 
 WORKDIR /app
 
@@ -17,7 +18,5 @@ COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
 COPY . .
-
-ARG FLAG
 
 CMD ["python", "app.py"]

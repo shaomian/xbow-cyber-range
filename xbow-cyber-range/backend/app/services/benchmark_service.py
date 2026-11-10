@@ -646,6 +646,19 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             cs = _compose_containers(project_name)
         if cs:
             inst.container_id = cs[0]["id"]
+        # 构建耗时不吃掉存活时长：running 时按原定超时重新起算
+        #（原定超时 = 提交时的 expires_at - started_at，受 max_instance_timeout 约束）
+        if inst.started_at is not None and inst.expires_at is not None:
+            from datetime import timedelta
+            from . import instance_service as _isvc
+            planned = (inst.expires_at - inst.started_at).total_seconds()
+            try:
+                planned = min(planned, RuntimeSettings(db).max_instance_timeout)
+            except Exception:  # noqa: BLE001
+                pass
+            if planned < 60:
+                planned = 60
+            inst.expires_at = _isvc._to_naive_utc(_isvc._now() + timedelta(seconds=planned))
         inst.status = "running"
         inst.last_error = ""
         db.commit()

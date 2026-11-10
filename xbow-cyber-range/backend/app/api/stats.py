@@ -47,18 +47,18 @@ def instances_stats(
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db_dep),
 ):
-    insts = instance_service.list_instances(db, user, only_active=True)
-    out = []
-    for inst in insts:
-        if not inst.container_id:
-            continue
+    # docker stats(stream=False) 单次约 1-2s；串行时 5+ 实例单请求即超 5s 轮询
+    # 间隔造成请求堆积。并行采集。
+    insts = [i for i in instance_service.list_instances(db, user, only_active=True) if i.container_id]
+
+    def _one(inst: models.Instance) -> schemas.ContainerStatsOut:
         try:
             s = docker_service.stats(inst.container_id)
         except DockerError:
             s = {}
-        out.append(schemas.ContainerStatsOut(
+        return schemas.ContainerStatsOut(
             instance_id=inst.id,
-            container_id=inst.container_id[:12] if inst.container_id else "",
+            container_id=inst.container_id[:12],
             name=inst.name,
             cpu_percent=s.get("cpu_percent", 0.0),
             memory_used_mb=s.get("memory_used_mb", 0.0),
@@ -66,8 +66,13 @@ def instances_stats(
             net_rx_kb=s.get("net_rx_kb", 0.0),
             net_tx_kb=s.get("net_tx_kb", 0.0),
             status=s.get("status", inst.status),
-        ))
-    return out
+        )
+
+    if not insts:
+        return []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(8, len(insts))) as ex:
+        return list(ex.map(_one, insts))
 
 
 @router.get("/instances/{instance_id}", response_model=schemas.ContainerStatsOut)

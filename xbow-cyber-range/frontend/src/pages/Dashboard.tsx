@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Card, Col, Row, Statistic, Progress, Table, Typography, Tag } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Card, Col, Row, Statistic, Progress, Table, Typography, Tag, Tooltip } from "antd";
 import {
   ContainerOutlined,
   DashboardOutlined,
@@ -13,12 +13,20 @@ export default function DashboardPage() {
   const [sys, setSys] = useState<SystemStats | null>(null);
   const [instStats, setInstStats] = useState<ContainerStats[]>([]);
   const [instances, setInstances] = useState<InstanceOut[]>([]);
+  const busyRef = useRef(false);
 
   const refresh = async () => {
-    const [s, ist, ins] = await Promise.all([statsApi.system(), statsApi.instances(), instancesApi.list()]);
-    setSys(s);
-    setInstStats(ist);
-    setInstances(ins);
+    // docker stats 采集可能慢于轮询间隔；上一次未完成时跳过本轮，避免请求堆积
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      const [s, ist, ins] = await Promise.all([statsApi.system(), statsApi.instances(), instancesApi.list()]);
+      setSys(s);
+      setInstStats(ist);
+      setInstances(ins);
+    } finally {
+      busyRef.current = false;
+    }
   };
 
   useEffect(() => {
@@ -40,7 +48,9 @@ export default function DashboardPage() {
         </Col>
         <Col xs={12} md={6}>
           <Card>
-            <Statistic title="容器总数" value={sys?.containers_total ?? 0} prefix={<ContainerOutlined />} />
+            <Tooltip title="宿主机 docker 的全部容器，含非本平台管理的容器">
+              <Statistic title="宿主机容器总数" value={sys?.containers_total ?? 0} prefix={<ContainerOutlined />} />
+            </Tooltip>
           </Card>
         </Col>
         <Col xs={12} md={6}>

@@ -434,9 +434,14 @@ def set_instance_timeout(db: Session, inst: models.Instance, timeout_seconds: in
 
 
 def reap_expired(db: Session) -> List[int]:
-    """扫描所有过期且仍在运行的实例，停止之。返回被停止的 instance id 列表。"""
+    """扫描所有过期且仍在运行的实例，停止之。返回被停止的 instance id 列表。
+
+    creating 状态不按 expires_at 回收：benchmark build 最长 3600s，构建期间
+    尚无运行容器，"停止"既无意义也会与后台构建线程竞争状态。仅当过期时间
+    超过一个构建宽限期仍停留在 creating（构建线程死亡/环境重启残留），
+    才视为僵尸回收。
+    """
     now = _now()
-    # 同时收集 status in (running, creating, exited)
     candidates = (
         db.query(models.Instance)
         .filter(models.Instance.expires_at.isnot(None))
@@ -451,6 +456,8 @@ def reap_expired(db: Session) -> List[int]:
         if exp.tzinfo is None:
             exp = exp.replace(tzinfo=timezone.utc)
         if exp <= now:
+            if inst.status == "creating" and exp > now - timedelta(seconds=3600):
+                continue
             try:
                 stop_instance(db, inst)
                 stopped.append(inst.id)

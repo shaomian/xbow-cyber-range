@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -15,6 +16,22 @@ from ..config import settings
 
 class DockerError(Exception):
     pass
+
+
+# ---- 端口分配并发保护 ----
+# allocate_ports 与"端口真正绑定到容器"之间有时间窗（单容器 create 约秒级；
+# compose 从分配到 up 完成可达数分钟，期间 docker 层看不到该端口被占）。
+# 并发启动会各自选到同一空闲端口，后一个 docker create 报"端口已被占用"。
+# 进程内锁串行化分配决策 + 预留表（带 TTL，超过最长构建时间视为泄漏失效），
+# 使时间窗内的端口对后续分配可见。单进程部署（uvicorn 默认）下有效。
+_port_lock = threading.Lock()
+_reserved_ports: Dict[int, float] = {}  # host port -> 预留时间戳
+_PORT_RESERVE_TTL_SECONDS = 15 * 60.0  # 覆盖 compose build+up 最长时间
+
+
+def _prune_reserved(now: float) -> None:
+    for p in [p for p, t in _reserved_ports.items() if now - t > _PORT_RESERVE_TTL_SECONDS]:
+        _reserved_ports.pop(p, None)
 
 
 class DockerService:
@@ -105,45 +122,54 @@ class DockerService:
         port_end: int,
         requested: Optional[Dict[int, int]] = None,
     ) -> Dict[int, int]:
-        """为容器内端口在 [start, end] 范围内随机分配宿主端口。"""
+        """为容器内端口在 [start, end] 范围内随机分配宿主端口。
+
+        分配期间持进程内锁，并把结果写入带 TTL 的预留表——在端口真正绑定到
+        容器之前（compose 场景最长数分钟）对后续并发分配可见，避免撞端口。
+        """
         if port_end <= port_start:
             raise DockerError(f"端口范围无效: [{port_start}, {port_end}]")
-        used = self.used_host_ports()
-        result: Dict[int, int] = {}
-        # 先处理用户指定
-        if requested:
-            for cp, hp in requested.items():
-                if hp and hp not in used and self._is_port_free(hp):
-                    result[int(cp)] = int(hp)
-                    used.add(int(hp))
-        # 剩余的随机分配
-        import random
-        pool = [p for p in range(port_start, port_end + 1) if p not in used]
-        random.shuffle(pool)
-        idx = 0
-        for cp in container_ports:
-            if cp in result:
-                continue
-            allocated = None
-            while idx < len(pool):
-                cand = pool[idx]
-                idx += 1
-                if self._is_port_free(cand):
-                    allocated = cand
-                    break
-            if allocated is None:
-                # 再扫一遍已使用集合之外
-                for cand in range(port_start, port_end + 1):
-                    if cand in used or cand in result.values():
-                        continue
+        with _port_lock:
+            now = time.time()
+            _prune_reserved(now)
+            used = self.used_host_ports() | set(_reserved_ports.keys())
+            result: Dict[int, int] = {}
+            # 先处理用户指定
+            if requested:
+                for cp, hp in requested.items():
+                    if hp and hp not in used and self._is_port_free(hp):
+                        result[int(cp)] = int(hp)
+                        used.add(int(hp))
+            # 剩余的随机分配
+            import random
+            pool = [p for p in range(port_start, port_end + 1) if p not in used]
+            random.shuffle(pool)
+            idx = 0
+            for cp in container_ports:
+                if cp in result:
+                    continue
+                allocated = None
+                while idx < len(pool):
+                    cand = pool[idx]
+                    idx += 1
                     if self._is_port_free(cand):
                         allocated = cand
                         break
-            if allocated is None:
-                raise DockerError(f"端口范围内无可用端口分配给容器端口 {cp}")
-            result[int(cp)] = allocated
-            used.add(allocated)
-        return result
+                if allocated is None:
+                    # 再扫一遍已使用集合之外
+                    for cand in range(port_start, port_end + 1):
+                        if cand in used or cand in result.values():
+                            continue
+                        if self._is_port_free(cand):
+                            allocated = cand
+                            break
+                if allocated is None:
+                    raise DockerError(f"端口范围内无可用端口分配给容器端口 {cp}")
+                result[int(cp)] = allocated
+                used.add(allocated)
+            for hp in result.values():
+                _reserved_ports[hp] = now
+            return result
 
     # ---- 容器生命周期 ----
     def _labels(self, extra: Optional[dict] = None) -> dict:

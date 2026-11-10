@@ -64,16 +64,16 @@ def me(user: models.User = Depends(get_current_user)):
 
 @router.post("/change-password", response_model=schemas.MessageOut)
 def change_password(
-    old_password: str,
-    new_password: str,
+    payload: schemas.ChangePasswordIn,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db_dep),
 ):
-    if not auth.verify_password(old_password, user.hashed_password):
+    # 密码走 request body：走 query string 会被 uvicorn 访问日志明文记录
+    if not auth.verify_password(payload.old_password, user.hashed_password):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "旧密码错误")
-    if len(new_password) < 6:
+    if len(payload.new_password) < 6:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "新密码至少 6 位")
-    user.hashed_password = auth.hash_password(new_password)
+    user.hashed_password = auth.hash_password(payload.new_password)
     db.commit()
     return schemas.MessageOut(message="密码已更新")
 

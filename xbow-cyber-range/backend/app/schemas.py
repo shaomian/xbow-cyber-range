@@ -100,6 +100,11 @@ class InstanceUpdateTimeoutIn(BaseModel):
     timeout_seconds: int = Field(..., gt=0)
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class PortMapping(BaseModel):
     container_port: int
     host_port: int
@@ -126,6 +131,7 @@ class InstanceOut(BaseModel):
     project_name: Optional[str] = None
     benchmark_id: Optional[str] = None
     flag: Optional[str] = None
+    compose_services: List[str] = []  # compose 实例当前运行中的服务名（终端服务选择用）
 
     class Config:
         from_attributes = True
@@ -185,13 +191,19 @@ class PlatformSettingsOut(BaseModel):
 
 
 class PlatformSettingsUpdateIn(BaseModel):
-    port_range_start: Optional[int] = None
-    port_range_end: Optional[int] = None
-    default_instance_timeout: Optional[int] = None
-    max_instance_timeout: Optional[int] = None
+    port_range_start: Optional[int] = Field(None, gt=0, lt=65536)
+    port_range_end: Optional[int] = Field(None, gt=0, lt=65536)
+    default_instance_timeout: Optional[int] = Field(None, gt=1, description="秒；过小会导致实例秒过期")
+    max_instance_timeout: Optional[int] = Field(None, gt=1)
     terminal_default_command: Optional[str] = None
     benchmarks_root: Optional[str] = None
     allow_registration: Optional[bool] = None
+
+
+class PublicSettingsOut(BaseModel):
+    """登录用户可读的平台参数子集（驱动前端弹窗默认值/上限，替代硬编码）。"""
+    default_instance_timeout: int
+    max_instance_timeout: int
 
 
 # ---- 通用 ----

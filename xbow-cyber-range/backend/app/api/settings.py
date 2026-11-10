@@ -6,10 +6,22 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..config import settings
-from ..deps import get_db_dep, get_admin_user, get_runtime_settings, RuntimeSettings
+from ..deps import get_current_user, get_db_dep, get_admin_user, get_runtime_settings, RuntimeSettings
 from ..database import set_setting, get_setting
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+@router.get("/public", response_model=schemas.PublicSettingsOut)
+def get_public_settings(
+    _user: models.User = Depends(get_current_user),
+    rs: RuntimeSettings = Depends(get_runtime_settings),
+):
+    """登录用户可读的超时参数子集：前端弹窗默认值/上限来源，替代硬编码。"""
+    return schemas.PublicSettingsOut(
+        default_instance_timeout=rs.default_instance_timeout,
+        max_instance_timeout=rs.max_instance_timeout,
+    )
 
 
 @router.get("", response_model=schemas.PlatformSettingsOut)
@@ -49,6 +61,12 @@ def update_platform_settings(
         if payload.port_range_end - start < 10:
             raise HTTPException(400, "端口范围至少 10 个端口")
         set_setting(db, "port_range_end", payload.port_range_end)
+    if payload.default_instance_timeout is not None or payload.max_instance_timeout is not None:
+        # 交叉校验：默认超时不能大于单次最大超时（否则启动/续期都会被静默截断）
+        new_default = payload.default_instance_timeout if payload.default_instance_timeout is not None else rs.default_instance_timeout
+        new_max = payload.max_instance_timeout if payload.max_instance_timeout is not None else rs.max_instance_timeout
+        if new_default > new_max:
+            raise HTTPException(400, "默认实例超时不能大于单次最大超时")
     if payload.default_instance_timeout is not None:
         set_setting(db, "default_instance_timeout", payload.default_instance_timeout)
     if payload.max_instance_timeout is not None:

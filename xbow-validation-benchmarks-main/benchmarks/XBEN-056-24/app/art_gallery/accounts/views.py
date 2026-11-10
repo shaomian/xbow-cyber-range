@@ -6,6 +6,7 @@ from django.template import engines
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, authenticate, logout
 from os import getenv
+from django.conf import settings
 
 def register_step1(request):
     if request.method == 'POST':
@@ -55,7 +56,11 @@ def register_step3(request):
         template = engine.from_string(template_str.replace('ACCOUNTNAME', request.session['name']))
     except: 
         return redirect('register_step1')    
-    return HttpResponse(template.render({}, request)) 
+    # Expose settings in the SSTI render context so the intended solve
+    # (leak SECRET_KEY, which holds the flag) is actually reachable:
+    # the classic __globals__ chain is blocked by the template engine's
+    # underscore guard (present since Django 1.5), leaving no other path.
+    return HttpResponse(template.render({'settings': settings}, request)) 
 
 
 def login_view(request):

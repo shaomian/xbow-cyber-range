@@ -27,6 +27,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { instancesApi, type InstanceOut, type InstanceStatusFilter } from "../api/instances";
+import { publicSettings, type PublicSettings } from "../api/stats";
 import { templatesApi, type Template } from "../api/templates";
 import Countdown from "../components/Countdown";
 
@@ -56,6 +57,12 @@ export default function InstancesPage() {
   const removedIdsRef = useRef<Set<number>>(new Set());
   const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [pub, setPub] = useState<PublicSettings | null>(null);
+
+  // 平台超时参数（弹窗上限/默认值提示来源），模块级缓存
+  useEffect(() => {
+    publicSettings().then(setPub).catch(() => {});
+  }, []);
 
   const refresh = async () => {
     setLoading(true);
@@ -314,6 +321,8 @@ export default function InstancesPage() {
       <StartModal
         open={startOpen}
         templates={templates}
+        maxMin={pub ? Math.floor(pub.max_instance_timeout / 60) : undefined}
+        defaultMin={pub ? Math.floor(pub.default_instance_timeout / 60) : undefined}
         onClose={() => setStartOpen(false)}
         onSubmit={doStart}
       />
@@ -328,7 +337,7 @@ export default function InstancesPage() {
         <div style={{ marginBottom: 8 }}>选择要延长的时长（分钟）：</div>
         <InputNumber
           min={1}
-          max={480}
+          max={pub ? Math.floor(pub.max_instance_timeout / 60) : undefined}
           value={extendMin}
           onChange={(v) => setExtendMin(v ?? 30)}
           style={{ width: 200 }}
@@ -342,11 +351,15 @@ export default function InstancesPage() {
 function StartModal({
   open,
   templates,
+  maxMin,
+  defaultMin,
   onClose,
   onSubmit,
 }: {
   open: boolean;
   templates: Template[];
+  maxMin?: number;
+  defaultMin?: number;
   onClose: () => void;
   onSubmit: (p: any) => void;
 }) {
@@ -438,9 +451,10 @@ function StartModal({
           超时（分钟）：
           <InputNumber
             min={1}
+            max={maxMin}
             value={timeoutMin}
             onChange={(v) => setTimeoutMin(v)}
-            placeholder="留空使用平台默认"
+            placeholder={defaultMin != null ? `留空使用平台默认（${defaultMin} 分钟）` : "留空使用平台默认"}
             style={{ marginLeft: 8 }}
           />
         </div>

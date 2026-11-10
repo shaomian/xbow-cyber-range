@@ -1,54 +1,56 @@
 # Backlog
 
-代码审查发现的待修复问题（已完成：模板越权启动、删除用户清理容器、compose 启动前端超时、
-不安全默认配置启动告警，见 git 历史）。
+代码审查发现的问题清单。**2026-11 首轮全部修复完毕**，保留作历史记录。
 
-## 中优先级
+## 中优先级（已完成）
 
-- [ ] **修改密码走 query string，明文进日志**
-  `POST /api/auth/change-password?old_password=...&new_password=...`，uvicorn 访问日志
-  完整记录 URL，密码永久泄漏到日志文件。改为 request body 传参。
-  位置：`backend/app/api/auth.py`（change_password 参数改为 Pydantic 模型）、
-  `frontend/src/api/auth.ts:26`。
-  附带：WebSocket 终端的 token 也在 query（`wsUrl()`），浏览器 WS 无法带 header 属协议
-  限制，可接受；但访问日志同样会记录，可考虑改用一次性 ticket 换取 WS 连接。
+- [x] **修改密码走 query string，明文进日志**
+  已改为 request body（`ChangePasswordIn`），前端同步改为 POST body。
+  位置：`backend/app/api/auth.py`、`frontend/src/api/auth.ts`。
+  备注：WebSocket 终端 token 仍在 query（浏览器 WS 无法带 header 属协议限制），
+  如后续需要可改为一次性 ticket 换取连接。
 
-- [ ] **reaper 会回收 creating 状态的实例**
-  构建（最长 3600s）期间的 benchmark 若默认超时较短（如 600s），会被 reaper 强停，
-  而后台构建线程仍在跑并最终把状态写回 running，状态错乱。
-  修复思路：creating 状态不参与回收，或 expires_at 从 running 起算。
-  位置：`backend/app/services/instance_service.py`（reap_expired 的 status 过滤）、
-  `benchmark_service.py`（_build_and_up_thread 完成时刷新 expires_at）。
+- [x] **reaper 会回收 creating 状态的实例**
+  creating 状态不按 expires_at 回收；仅当过期后仍超出 3600s 构建宽限期仍停在
+  creating（构建线程死亡/重启残留）才回收。构建成功转 running 时按原定超时
+  重新起算 expires_at（构建耗时不吃存活时长），受 max_instance_timeout 约束。
+  位置：`instance_service.py`（reap_expired）、`benchmark_service.py`（_build_and_up_thread）。
 
-- [ ] **Dashboard 5s 轮询 × docker stats 串行 → 请求堆积**
-  `c.stats(stream=False)` 单次约 1-2s，`/api/stats/instances` 逐实例串行统计；
-  5+ 实例时单请求超过前端 5s 轮询间隔，请求堆积直至 axios 30s 超时报错。
-  修复思路：并行化 stats 调用 / 用一次 `docker stats` 流聚合所有容器 / 降频轮询。
+- [x] **Dashboard 5s 轮询 × docker stats 串行 → 请求堆积**
+  后端 `/api/stats/instances` 改为线程池并行采集（max 8 workers）；前端 refresh
+  加 in-flight 防重入守卫，上次未完成跳过本轮。
   位置：`backend/app/api/stats.py`、`frontend/src/pages/Dashboard.tsx`。
 
-- [ ] **系统设置无数值校验**
-  default_instance_timeout / max_instance_timeout 可设 0 或负数 → 实例秒过期。
-  位置：`backend/app/schemas.py`（PlatformSettingsUpdateIn 加 gt=1 校验）。
+- [x] **系统设置无数值校验**
+  超时字段加 `gt=1`（0/负数 422）；端口范围加 `gt=0, lt=65536`；默认超时 >
+  单次最大超时返回 400 交叉校验。
+  位置：`backend/app/schemas.py`、`backend/app/api/settings.py`。
 
-## 低优先级
+## 低优先级（已完成）
 
-- [ ] **续期/设置超时弹窗 max=480 硬编码**：管理员调大 max_instance_timeout 后 UI 输不进去。
-  位置：`frontend/src/pages/Instances.tsx`（extendMin）、`frontend/src/pages/InstanceDetail.tsx`。
-  根因同"启动弹窗 480 硬编码"问题：需要一个登录用户可读的公开设置端点，
-  或改为留空走后端默认（参考启动弹窗的修复方式）。
+- [x] **续期/设置超时弹窗 max=480 硬编码**
+  新增 `GET /api/settings/public`（仅需登录），返回 default/max_instance_timeout；
+  前端模块级缓存获取，Instances/InstanceDetail/Benchmarks 弹窗上限与"留空默认"
+  提示全部动态取值。
+  位置：`backend/app/api/settings.py`、`frontend/src/api/stats.ts`、三个页面。
 
-- [ ] **Countdown 对 removed 实例显示"不过期"**：语义错误，应显示"已删除"。
-  位置：`frontend/src/components/Countdown.tsx`（`sec == null || status === "removed"` 分支）。
+- [x] **Countdown 对 removed 实例显示"不过期"**
+  removed 单独分支显示"已删除"。
+  位置：`frontend/src/components/Countdown.tsx`。
 
-- [ ] **端口分配并发竞态**：两个同时启动可能选中同一空闲端口，后一个 docker create
-  报"端口已被占用"。可加进程内锁 + 分配后重查。
+- [x] **端口分配并发竞态**
+  进程内锁串行化分配决策 + 带 TTL（15min，覆盖 compose build+up 时长）的预留表，
+  端口在真正绑定到容器前对后续分配可见。单进程部署下有效。
   位置：`backend/app/services/docker_service.py`（allocate_ports）。
 
-- [ ] **多服务 compose 终端连到列表第一个容器**：不一定是用户想进的目标服务。
-  修复思路：实例详情终端加服务选择器（compose 实例列出 project 下各服务容器）。
-  位置：`backend/app/services/benchmark_service.py:648`（cs[0] 回填）、
-  `backend/app/api/exec.py`、`frontend/src/components/TerminalPanel.tsx`。
+- [x] **多服务 compose 终端连到列表第一个容器**
+  实例详情返回运行中的服务列表（`compose_services`）；终端 WebSocket 支持
+  `service` 参数，仅在实例自己的 project 内按服务 label 解析容器（防越权 exec）；
+  详情页终端 Tab 多服务时显示服务选择器。
+  位置：`backend/app/api/exec.py`、`backend/app/api/instances.py`、
+  `frontend/src/components/TerminalPanel.tsx`、`frontend/src/pages/InstanceDetail.tsx`。
 
-- [ ] **Dashboard"容器总数"统计宿主机全部容器**：含非平台管理的容器，数字与平台
-  实例数对不上，易困惑。可按 managed label 过滤或区分展示。
-  位置：`backend/app/api/stats.py`（system_stats）。
+- [x] **Dashboard"容器总数"统计宿主机全部容器**
+  改名"宿主机容器总数" + Tooltip 说明含非平台管理的容器（compose 容器无
+  managed label，按 label 过滤会漏，故采用语义化标注）。
+  位置：`frontend/src/pages/Dashboard.tsx`。

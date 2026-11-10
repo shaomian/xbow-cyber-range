@@ -9,6 +9,7 @@ import {
   Modal,
   Popconfirm,
   Row,
+  Select,
   Space,
   Statistic,
   Tabs,
@@ -27,6 +28,7 @@ import {
 } from "@ant-design/icons";
 import { instancesApi, snapshotsApi, type InstanceOut, type SnapshotOut } from "../api/instances";
 import { statsApi, type ContainerStats } from "../api/stats";
+import { publicSettings, type PublicSettings } from "../api/stats";
 import Countdown from "../components/Countdown";
 import TerminalPanel from "../components/TerminalPanel";
 
@@ -46,6 +48,13 @@ export default function InstanceDetailPage() {
   const [extendOpen, setExtendOpen] = useState(false);
   const [timeoutMin, setTimeoutMin] = useState(60);
   const [timeoutOpen, setTimeoutOpen] = useState(false);
+  const [termService, setTermService] = useState<string | undefined>(undefined);
+  const [pub, setPub] = useState<PublicSettings | null>(null);
+
+  // 平台超时参数（弹窗上限来源），模块级缓存
+  useEffect(() => {
+    publicSettings().then(setPub).catch(() => {});
+  }, []);
 
   const instanceId = Number(id);
 
@@ -244,7 +253,22 @@ export default function InstanceDetailPage() {
             key: "terminal",
             label: "终端",
             children: inst.status === "running" ? (
-              <TerminalPanel instanceId={instanceId} />
+              <div>
+                {inst.kind === "compose" && (inst.compose_services?.length ?? 0) > 1 && (
+                  <Space style={{ marginBottom: 8 }}>
+                    <span>目标服务</span>
+                    <Select
+                      size="small"
+                      style={{ width: 200 }}
+                      placeholder="选择服务"
+                      value={termService}
+                      onChange={(v) => setTermService(v)}
+                      options={(inst.compose_services ?? []).map((s) => ({ value: s, label: s }))}
+                    />
+                  </Space>
+                )}
+                <TerminalPanel key={`${instanceId}-${termService ?? ""}`} instanceId={instanceId} service={termService} />
+              </div>
             ) : (
               <Typography.Text type="secondary">实例未运行，无法连接终端。请先启动实例。</Typography.Text>
             ),
@@ -321,12 +345,12 @@ export default function InstanceDetailPage() {
 
       <Modal title="续期" open={extendOpen} onCancel={() => setExtendOpen(false)} onOk={doExtend} okText="续期">
         <div style={{ marginBottom: 8 }}>延长时长（分钟）：</div>
-        <InputNumber min={1} max={480} value={extendMin} onChange={(v) => setExtendMin(v ?? 30)} style={{ width: 200 }} addonAfter="分钟" />
+        <InputNumber min={1} max={pub ? Math.floor(pub.max_instance_timeout / 60) : undefined} value={extendMin} onChange={(v) => setExtendMin(v ?? 30)} style={{ width: 200 }} addonAfter="分钟" />
       </Modal>
 
       <Modal title="设置超时" open={timeoutOpen} onCancel={() => setTimeoutOpen(false)} onOk={doSetTimeout} okText="设置">
         <div style={{ marginBottom: 8 }}>从现在起 N 分钟后自动停止：</div>
-        <InputNumber min={1} max={480} value={timeoutMin} onChange={(v) => setTimeoutMin(v ?? 60)} style={{ width: 200 }} addonAfter="分钟" />
+        <InputNumber min={1} max={pub ? Math.floor(pub.max_instance_timeout / 60) : undefined} value={timeoutMin} onChange={(v) => setTimeoutMin(v ?? 60)} style={{ width: 200 }} addonAfter="分钟" />
       </Modal>
     </div>
   );

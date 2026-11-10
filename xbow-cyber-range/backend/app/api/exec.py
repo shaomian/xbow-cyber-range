@@ -32,13 +32,15 @@ def _authenticate_ws(token: Optional[str]) -> Optional[str]:
 
 
 @router.websocket("/api/instances/{instance_id}/terminal")
-async def terminal_ws(websocket: WebSocket, instance_id: int, token: Optional[str] = None):
+async def terminal_ws(websocket: WebSocket, instance_id: int, token: Optional[str] = None, service: Optional[str] = None):
     """浏览器 <-> 容器 TTY 双向中继。
 
     约定：
     - 客户端发送二进制 = 写入容器 stdin
     - 客户端发送文本 = 控制消息 JSON：{"type":"resize","cols":..,"rows":..}
     - 服务端发送二进制 = 容器 stdout/stderr
+    - service 参数：compose 多服务栈时指定目标服务（仅在实例自己的 project
+      内按服务 label 解析，不接受任意 container id，防止越权 exec）
     """
     username = _authenticate_ws(token)
     if not username:
@@ -65,7 +67,18 @@ async def terminal_ws(websocket: WebSocket, instance_id: int, token: Optional[st
             await websocket.send_text(json.dumps({"type": "error", "message": "实例不存在或无权限"}, ensure_ascii=False))
             await websocket.close()
             return
-        if not inst.container_id:
+
+        target_container_id = inst.container_id
+        if inst.kind == "compose" and service:
+            from ..services import benchmark_service
+            cs = benchmark_service._compose_containers(inst.project_name) if inst.project_name else []
+            running = [c for c in cs if c["service"] == service and c["status"] == "running"]
+            if not running:
+                await websocket.send_text(json.dumps({"type": "error", "message": f"服务不存在或未运行: {service}"}, ensure_ascii=False))
+                await websocket.close()
+                return
+            target_container_id = running[0]["id"]
+        if not target_container_id:
             await websocket.send_text(json.dumps({"type": "error", "message": "容器尚未创建（实例可能仍在构建中或已停止）"}, ensure_ascii=False))
             await websocket.close()
             return
@@ -73,7 +86,7 @@ async def terminal_ws(websocket: WebSocket, instance_id: int, token: Optional[st
         cmd = (rs.terminal_default_command if rs else settings.terminal_default_command) or "/bin/sh"
 
         try:
-            exec_id = docker_service.create_exec(inst.container_id, command=cmd)
+            exec_id = docker_service.create_exec(target_container_id, command=cmd)
         except DockerError as e:
             await websocket.send_text(json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False))
             await websocket.close()

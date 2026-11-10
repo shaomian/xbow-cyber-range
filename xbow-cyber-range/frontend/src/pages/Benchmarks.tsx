@@ -25,6 +25,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { benchmarksApi, type BenchmarkOut } from "../api/benchmarks";
 import { instancesApi } from "../api/instances";
+import { publicSettings, type PublicSettings } from "../api/stats";
 
 export default function BenchmarksPage() {
   const { message } = App.useApp();
@@ -37,6 +38,12 @@ export default function BenchmarksPage() {
   const [launching, setLaunching] = useState(false);
   const [pageNum, setPageNum] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [pub, setPub] = useState<PublicSettings | null>(null);
+
+  // 平台超时参数（弹窗上限/默认值提示来源），模块级缓存
+  useEffect(() => {
+    publicSettings().then(setPub).catch(() => {});
+  }, []);
 
   const refresh = async () => {
     setLoading(true);
@@ -235,10 +242,13 @@ export default function BenchmarksPage() {
         <div style={{ marginBottom: 8 }}>超时自动停止（分钟）：</div>
         <InputNumber
           min={1}
+          max={pub ? Math.floor(pub.max_instance_timeout / 60) : undefined}
           value={timeoutMin}
           onChange={(v) => setTimeoutMin(v)}
-          placeholder="留空使用平台默认"
-          style={{ width: 200 }}
+          placeholder={
+            pub ? `留空使用平台默认（${Math.floor(pub.default_instance_timeout / 60)} 分钟）` : "留空使用平台默认"
+          }
+          style={{ width: 240 }}
           addonAfter="分钟"
         />
         <Typography.Paragraph type="secondary" style={{ marginTop: 4, fontSize: 12, marginBottom: 0 }}>

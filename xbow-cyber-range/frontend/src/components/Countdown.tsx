@@ -32,7 +32,10 @@ export default function Countdown({ remaining, status }: Props) {
     return () => clearInterval(t);
   }, [remaining, status]);
 
-  if (sec == null || status === "removed") {
+  if (status === "removed") {
+    return <Tag>已删除</Tag>;
+  }
+  if (sec == null) {
     return <Tag>不过期</Tag>;
   }
   if (sec <= 0) {

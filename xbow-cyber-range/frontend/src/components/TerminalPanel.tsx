@@ -5,9 +5,11 @@ import { wsUrl } from "../api/client";
 
 interface Props {
   instanceId: number;
+  /** compose 多服务栈时指定目标服务；空则连实例主容器 */
+  service?: string;
 }
 
-export default function TerminalPanel({ instanceId }: Props) {
+export default function TerminalPanel({ instanceId, service }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -29,9 +31,11 @@ export default function TerminalPanel({ instanceId }: Props) {
       /* noop */
     }
     termRef.current = term;
-    term.writeln(`\x1b[36m正在连接实例 #${instanceId} 的终端...\x1b[0m`);
+    term.writeln(`\x1b[36m正在连接实例 #${instanceId}${service ? ` 服务 ${service}` : ""} 的终端...\x1b[0m`);
 
-    const url = wsUrl(`/api/instances/${instanceId}/terminal`);
+    const url =
+      wsUrl(`/api/instances/${instanceId}/terminal`) +
+      (service ? `&service=${encodeURIComponent(service)}` : "");
     const ws = new WebSocket(url);
     wsRef.current = ws;
     ws.binaryType = "arraybuffer";
@@ -100,7 +104,7 @@ export default function TerminalPanel({ instanceId }: Props) {
       ws.close();
       term.dispose();
     };
-  }, [instanceId]);
+  }, [instanceId, service]);
 
   return (
     <div

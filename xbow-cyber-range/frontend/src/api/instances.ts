@@ -21,6 +21,7 @@ export interface InstanceOut {
   project_name: string | null;
   benchmark_id: string | null;
   flag: string | null;
+  compose_services?: string[];
 }
 
 export interface InstanceStartInput {

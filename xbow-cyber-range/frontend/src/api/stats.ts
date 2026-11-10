@@ -43,3 +43,24 @@ export const settingsApi = {
   get: () => http.get<PlatformSettings>("/settings").then((r) => r.data),
   update: (payload: Partial<PlatformSettings>) => http.put<PlatformSettings>("/settings", payload).then((r) => r.data),
 };
+
+export interface PublicSettings {
+  default_instance_timeout: number;
+  max_instance_timeout: number;
+}
+
+let pubCache: Promise<PublicSettings> | null = null;
+
+/** 登录用户可读的超时参数（弹窗默认值/上限来源）。模块级缓存，失败后允许重试。 */
+export function publicSettings(): Promise<PublicSettings> {
+  if (!pubCache) {
+    pubCache = http
+      .get<PublicSettings>("/settings/public")
+      .then((r) => r.data)
+      .catch((e) => {
+        pubCache = null;
+        throw e;
+      });
+  }
+  return pubCache;
+}

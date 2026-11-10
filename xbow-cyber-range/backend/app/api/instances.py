@@ -114,7 +114,16 @@ def get_instance(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "实例不存在")
     instance_service._apply_runtime_status(inst)
     db.commit()
-    return _to_out(inst, rs)
+    out = _to_out(inst, rs)
+    # compose 实例：回填运行中的服务名列表（详情页终端服务选择用）
+    if inst.kind == "compose" and inst.project_name:
+        from ..services import benchmark_service
+        try:
+            cs = benchmark_service._compose_containers(inst.project_name)
+            out.compose_services = sorted({c["service"] for c in cs if c["service"] and c["status"] == "running"})
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 @router.post("", response_model=schemas.InstanceOut, status_code=status.HTTP_201_CREATED)

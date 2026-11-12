@@ -116,37 +116,60 @@ def _create_default_admin() -> None:
         db.close()
 
 
+def _reaper_pass() -> None:
+    """一轮状态同步 + 过期回收。
+
+    同步函数，含大量阻塞 Docker 调用，绝不能直接在事件循环里执行，
+    必须放工作线程（见 _reaper_loop 注释）。
+    """
+    db = SessionLocal()
+    try:
+        # 先同步状态：让重启后残留的 running/creating/paused/restarting/partial
+        # 实例的状态匹配 docker 实际状态（exited/stopped/removed）。
+        instance_service.sync_all_status(db)
+        stopped = instance_service.reap_expired(db)
+        if stopped:
+            logger.info("自动停止过期实例: %s", stopped)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("reaper 异常: %s", e)
+    finally:
+        db.close()
+
+
+def _sync_all_status_once() -> None:
+    db = SessionLocal()
+    try:
+        instance_service.sync_all_status(db)
+    finally:
+        db.close()
+
+
 async def _reaper_loop() -> None:
-    """后台定时扫描过期实例并停止；同时周期性同步 DB 状态与 docker 实际状态。"""
+    """后台定时扫描过期实例并停止；同时周期性同步 DB 状态与 docker 实际状态。
+
+    连接池/事件循环安全（勿回退）：每轮工作是同步 docker 调用——
+    sync_all_status 逐实例查 docker（含历史 exited/stopped 记录），
+    reap_expired 逐个 stop（单容器 docker stop 最长等 10s，
+    compose stop 子进程最长 120s）。曾直接在事件循环上同步执行，
+    闲置期间实例集中过期后，reaper 一轮可阻塞事件循环数分钟，
+    期间所有 HTTP 请求冻结——表现为"隔段时间没访问，首次打开
+    转圈几分钟才出登录页"。必须 to_thread。
+    """
     interval = max(5, settings.reaper_interval_seconds)
     while True:
         await asyncio.sleep(interval)
-        db = SessionLocal()
-        try:
-            # 先同步状态：让重启后残留的 running/creating/paused/restarting/partial
-            # 实例的状态匹配 docker 实际状态（exited/stopped/removed）。
-            instance_service.sync_all_status(db)
-            stopped = instance_service.reap_expired(db)
-            if stopped:
-                logger.info("自动停止过期实例: %s", stopped)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("reaper 异常: %s", e)
-        finally:
-            db.close()
+        await asyncio.to_thread(_reaper_pass)
 
 
 @app.on_event("startup")
 async def _start_reaper() -> None:
     # 启动时立即同步一次实例状态：覆盖环境重启 / Docker daemon 重启后
     # DB 中仍残留 running/creating 但容器实际已退出 的情况，避免 web 显示陈旧状态。
-    db = SessionLocal()
     try:
-        instance_service.sync_all_status(db)
+        await asyncio.to_thread(_sync_all_status_once)
         logger.info("启动时已同步实例状态")
     except Exception as e:  # noqa: BLE001
         logger.warning("启动时同步实例状态失败: %s", e)
-    finally:
-        db.close()
     asyncio.create_task(_reaper_loop())
 
 

@@ -560,9 +560,8 @@ def launch_benchmark(
     return inst, ""
 
 
-def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str,
-                         normalized_path: str, override_path: str, work_dir: str, flag: str) -> None:
-    """后台线程：build + up，更新 DB。使用规范化 compose + override + project-directory。"""
+def _mark_build_failed(instance_id: int, message: str) -> None:
+    """短会话：把实例标记为 exited + 错误信息。"""
     from ..database import SessionLocal
     from . import instance_service
     db = SessionLocal()
@@ -570,33 +569,51 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
         inst = db.query(models.Instance).filter(models.Instance.id == instance_id).first()
         if not inst:
             return
-        common_args = compose_cmd() + [
-            "-p", project_name,
-            "--project-directory", benchmark_dir,
-            "-f", normalized_path,
-            "-f", override_path,
-        ]
-        # build（复刻 make run: --build-arg FLAG --build-arg flag）
-        # 同时清空预定义代理 ARG，避免宿主 127.0.0.1 代理被注入容器导致 apt 失败
-        build_args = common_args + [
-            "build",
-            "--build-arg", f"FLAG={flag}",
-            "--build-arg", f"flag={flag}",
-            "--build-arg", "http_proxy=",
-            "--build-arg", "https_proxy=",
-            "--build-arg", "HTTP_PROXY=",
-            "--build-arg", "HTTPS_PROXY=",
-            "--build-arg", "all_proxy=",
-            "--build-arg", "ALL_PROXY=",
-            "--build-arg", "no_proxy=*",
-            "--build-arg", "NO_PROXY=*",
-        ]
+        inst.status = "exited"
+        inst.last_error = message
+        instance_service._set_stopped_now(inst)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        db.close()
+
+
+def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str,
+                         normalized_path: str, override_path: str, work_dir: str, flag: str) -> None:
+    """后台线程：build + up，更新 DB。使用规范化 compose + override + project-directory。
+
+    连接池安全（勿回退）：build/up 可能耗时数十分钟（build timeout 3600s），
+    期间绝不持有 DB 会话，否则每次构建都长期占死一个池连接；
+    需要读写 DB 时才开短会话，用完立即归还。
+    """
+    from . import instance_service
+    common_args = compose_cmd() + [
+        "-p", project_name,
+        "--project-directory", benchmark_dir,
+        "-f", normalized_path,
+        "-f", override_path,
+    ]
+    # build（复刻 make run: --build-arg FLAG --build-arg flag）
+    # 同时清空预定义代理 ARG，避免宿主 127.0.0.1 代理被注入容器导致 apt 失败
+    build_args = common_args + [
+        "build",
+        "--build-arg", f"FLAG={flag}",
+        "--build-arg", f"flag={flag}",
+        "--build-arg", "http_proxy=",
+        "--build-arg", "https_proxy=",
+        "--build-arg", "HTTP_PROXY=",
+        "--build-arg", "HTTPS_PROXY=",
+        "--build-arg", "all_proxy=",
+        "--build-arg", "ALL_PROXY=",
+        "--build-arg", "no_proxy=*",
+        "--build-arg", "NO_PROXY=*",
+    ]
+    try:
+        # ---- 阶段 1：build（长耗时，不持有任何 DB 会话）----
         rc, out = _run_cmd(build_args, cwd=benchmark_dir, timeout=3600)
         if rc != 0:
-            inst.status = "exited"
-            inst.last_error = f"build 失败:\n{out[-2000:]}"
-            instance_service._set_stopped_now(inst)
-            db.commit()
+            _mark_build_failed(instance_id, f"build 失败:\n{out[-2000:]}")
             # build 失败也要清理已建出的容器与网络，否则每次失败都留一个孤儿网络
             # 累积最终会把 Docker 默认子网池占满，触发 "all predefined address pools
             # have been fully subnetted" 导致后续任何 compose 都无法启动。
@@ -605,21 +622,19 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
             except Exception:  # noqa: BLE001
                 pass
             return
-        # up: 不用 --wait（会因 healthcheck 失败如镜像缺 curl 而误判启动失败）
+        # ---- 阶段 2：up（同上，不持有会话）----
+        # 不用 --wait（会因 healthcheck 失败如镜像缺 curl 而误判启动失败）
         up_args = common_args + ["up", "-d"]
         rc, out = _run_cmd(up_args, cwd=benchmark_dir, timeout=300)
         if rc != 0:
-            inst.status = "exited"
-            inst.last_error = f"up 失败:\n{out[-2000:]}"
-            instance_service._set_stopped_now(inst)
-            db.commit()
+            _mark_build_failed(instance_id, f"up 失败:\n{out[-2000:]}")
             # up 失败同样清理残留，避免网络泄漏
             try:
                 _force_remove_project(project_name)
             except Exception:  # noqa: BLE001
                 pass
             return
-        # 等容器实际进入 running 状态（短轮询，不依赖 healthcheck）
+        # ---- 阶段 3：等容器实际进入 running 状态（短轮询，不依赖 healthcheck）----
         import time as _t
         running = False
         for _ in range(10):
@@ -629,10 +644,7 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
                 running = True
                 break
         if not running:
-            inst.status = "exited"
-            inst.last_error = "up 后容器未进入 running 状态"
-            instance_service._set_stopped_now(inst)
-            db.commit()
+            _mark_build_failed(instance_id, "up 后容器未进入 running 状态")
             try:
                 _force_remove_project(project_name)
             except Exception:  # noqa: BLE001
@@ -641,39 +653,39 @@ def _build_and_up_thread(instance_id: int, benchmark_dir: str, project_name: str
         # 回填主容器 id（up 刚完成时容器列表可能短暂为空，重试一次）
         cs = _compose_containers(project_name)
         if not cs:
-            import time as _t
             _t.sleep(2)
             cs = _compose_containers(project_name)
-        if cs:
-            inst.container_id = cs[0]["id"]
-        # 构建耗时不吃掉存活时长：running 时按原定超时重新起算
-        #（原定超时 = 提交时的 expires_at - started_at，受 max_instance_timeout 约束）
-        if inst.started_at is not None and inst.expires_at is not None:
-            from datetime import timedelta
-            from . import instance_service as _isvc
-            planned = (inst.expires_at - inst.started_at).total_seconds()
-            try:
-                planned = min(planned, RuntimeSettings(db).max_instance_timeout)
-            except Exception:  # noqa: BLE001
-                pass
-            if planned < 60:
-                planned = 60
-            inst.expires_at = _isvc._to_naive_utc(_isvc._now() + timedelta(seconds=planned))
-        inst.status = "running"
-        inst.last_error = ""
-        db.commit()
-    except Exception as e:  # noqa: BLE001
+        container_id = cs[0]["id"] if cs else None
+
+        # ---- 阶段 4：短会话回填结果 ----
+        from ..database import SessionLocal
+        db = SessionLocal()
         try:
             inst = db.query(models.Instance).filter(models.Instance.id == instance_id).first()
-            if inst:
-                inst.status = "exited"
-                inst.last_error = f"后台构建异常: {e}"
-                instance_service._set_stopped_now(inst)
-                db.commit()
-        except Exception:  # noqa: BLE001
-            pass
-    finally:
-        db.close()
+            if not inst:
+                return
+            if container_id:
+                inst.container_id = container_id
+            # 构建耗时不吃掉存活时长：running 时按原定超时重新起算
+            #（原定超时 = 提交时的 expires_at - started_at，受 max_instance_timeout 约束）
+            if inst.started_at is not None and inst.expires_at is not None:
+                from datetime import timedelta
+                from . import instance_service as _isvc
+                planned = (inst.expires_at - inst.started_at).total_seconds()
+                try:
+                    planned = min(planned, RuntimeSettings(db).max_instance_timeout)
+                except Exception:  # noqa: BLE001
+                    pass
+                if planned < 60:
+                    planned = 60
+                inst.expires_at = _isvc._to_naive_utc(_isvc._now() + timedelta(seconds=planned))
+            inst.status = "running"
+            inst.last_error = ""
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001
+        _mark_build_failed(instance_id, f"后台构建异常: {e}")
 
 
 def _to_naive_utc(dt):

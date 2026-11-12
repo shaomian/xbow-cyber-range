@@ -35,6 +35,7 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.log
+*.pid
 
 # ---- Build artifacts (xbow) ----
 .xben_build_done
